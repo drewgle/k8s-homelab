@@ -1,0 +1,67 @@
+---
+- name: Proxmox Health Check
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Check Proxmox services status
+      service_facts:
+
+    - name: Verify critical Proxmox services are running
+      assert:
+        that:
+          - ansible_facts.services['pvedaemon.service'].state == 'running'
+          - ansible_facts.services['pveproxy.service'].state == 'running'
+          - ansible_facts.services['pvestatd.service'].state == 'running'
+        fail_msg: "Critical Proxmox services are not running on {{ inventory_hostname }}"
+        success_msg: "All critical Proxmox services are running on {{ inventory_hostname }}"
+
+    - name: Check disk usage
+      shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      changed_when: false
+
+    - name: Warning if disk usage is high
+      debug:
+        msg: "WARNING: Disk usage on {{ inventory_hostname }} is {{ disk_usage.stdout }}%"
+      when: disk_usage.stdout|int > 80
+
+    - name: Check memory usage
+      shell: free | grep Mem | awk '{printf "%.2f", ($3/$2) * 100.0}'
+      register: memory_usage
+      changed_when: false
+
+    - name: Display system stats
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Uptime: {{ ansible_uptime_seconds | int // 86400 }} days, {{ (ansible_uptime_seconds | int % 86400) // 3600 }} hours"
+          - "Load: {{ ansible_loadavg['1min'] }}"
+          - "Memory Usage: {{ memory_usage.stdout }}%"
+          - "Disk Usage: {{ disk_usage.stdout }}%"
+          - "Proxmox Version: {{ ansible_kernel }}"
+
+    - name: Check for available updates
+      shell: apt list --upgradable 2>/dev/null | tail -n +2 | wc -l
+      register: updates_available
+      changed_when: false
+
+    - name: Report available updates
+      debug:
+        msg: "{{ updates_available.stdout }} package updates available on {{ inventory_hostname }}"
+      when: updates_available.stdout|int > 0
+
+    - name: Cluster status (run on first host only)
+      shell: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Display cluster status
+      debug:
+        var: cluster_status.stdout_lines
+      run_once: true
+      when: cluster_status.rc == 0

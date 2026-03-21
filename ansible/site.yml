@@ -1,0 +1,4 @@
+---
+# Main site playbook - runs all setup tasks in order
+- import_playbook: playbooks/proxmox/initial-setup.yml
+- import_playbook: playbooks/proxmox/reboot.yml

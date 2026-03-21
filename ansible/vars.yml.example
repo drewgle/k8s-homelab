@@ -1,0 +1,15 @@
+# Homelab Configuration Variables
+# Copy this file to vars.yml and customize the values for your environment
+
+# GitHub username to fetch SSH keys from
+github_username: "your-github-username"
+
+# Additional configuration variables
+# Add any other environment-specific variables here as needed
+
+# Example additional variables you might want to add:
+# timezone: "America/New_York"
+# ntp_servers:
+#   - "pool.ntp.org"
+#   - "time.google.com"
+# domain_name: "homelab.local"

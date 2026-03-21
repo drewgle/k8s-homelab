@@ -1,0 +1,80 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "dependencyDashboardTitle": "Renovate Runner Dependency Dashboard",
+  "configMigration": true,
+  "labels": [
+    "{{depName}}",
+    "{{updateType}}"
+  ],
+  "docker-compose": {
+    "hostRules": [
+      {
+        "matchHost": "docker.io",
+        "hostType": "docker",
+        "concurrentRequestLimit": 2
+      }
+    ],
+    "packageRules": [
+      {
+        "matchUpdateTypes": [
+          "digest",
+          "pinDigest",
+          "lockFileMaintenance"
+        ],
+        "automerge": true
+      },
+      {
+        "matchDatasources": [
+          "docker"
+        ],
+        "pinDigests": true
+      },
+      {
+        "matchPackageNames": "immich-app**",
+        "groupName": "immich"
+      },
+      {
+        "matchPackageNames": [
+          "tensorchord/pgvecto-rs"
+        ],
+        "enabled": false
+      },
+      {
+        "matchPackageNames": [
+          "ghcr.io/hotio/**"
+        ],
+        "versionCompatibility": "^(?<compatibility>release-)(?<version>.+)$"
+      },
+      {
+        "matchUpdateTypes": [
+          "patch"
+        ],
+        "addLabels": [
+          "patch"
+        ],
+        "automerge": true,
+      },
+      {
+        "matchUpdateTypes": [
+          "minor"
+        ],
+        "addLabels": [
+          "minor"
+        ],
+        "automerge": false
+      },
+      {
+        "matchUpdateTypes": [
+          "major"
+        ],
+        "addLabels": [
+          "major"
+        ],
+        "automerge": false
+      }
+    ]
+  }
+}

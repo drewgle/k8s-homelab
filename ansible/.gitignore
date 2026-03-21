@@ -1,0 +1,16 @@
+# Environment-specific configuration
+vars.yml
+
+# Ansible runtime files
+*.retry
+.ansible/
+
+# Backup files
+*.backup
+*~
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+.DS_Store

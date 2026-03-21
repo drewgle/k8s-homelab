@@ -1,0 +1,37 @@
+---
+- name: Reboot Proxmox hosts if required
+  hosts: proxmox
+  become: yes
+  gather_facts: no
+  serial: 1  # Reboot one host at a time
+  
+  tasks:
+    - name: Check if reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot the host
+      reboot:
+        reboot_timeout: 300
+        connect_timeout: 20
+        pre_reboot_delay: 10
+        post_reboot_delay: 30
+        msg: "Rebooting after system upgrade"
+      when: reboot_required.stat.exists
+
+    - name: Wait for host to come back online
+      wait_for_connection:
+        delay: 20
+        timeout: 300
+      when: reboot_required.stat.exists
+
+    - name: Verify Proxmox services are running
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - pvedaemon
+        - pveproxy
+        - pvestatd
+      when: reboot_required.stat.exists
