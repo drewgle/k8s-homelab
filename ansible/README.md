@@ -1,165 +1,138 @@
 # Proxmox Homelab Ansible Setup
 
-This directory contains Ansible playbooks for setting up and managing a Proxmox VE homelab with 3 servers.
+Automated setup and management for a Proxmox VE homelab with clustering, security hardening, and distributed storage.
 
-**Organized Structure**: Playbooks are organized by system type in subfolders for better scalability and maintainability.
+## Quick Start
 
-## Prerequisites
-
-1. Ansible installed on your control machine
-2. SSH access to your Proxmox hosts (initially with password, will be replaced with key-based auth)
-3. Root access on Proxmox hosts
-
-## Initial Configuration
-
-### 1. Update Inventory
-
-Edit `inventory.yaml` and update the IP addresses for your Proxmox hosts:
-
-```yaml
-pve1:
-  ansible_host: YOUR_PVE1_IP
-pve2:
-  ansible_host: YOUR_PVE2_IP
-pve3:
-  ansible_host: YOUR_PVE3_IP
-```
-
-### 2. Configure Variables
-
-Copy the example configuration file and customize it for your environment:
+### 1. Configure Environment
 
 ```bash
+cd ansible
+
+# Create configuration from example
 cp vars.yml.example vars.yml
+
+# Update IP addresses in inventory
+vim inventory.yaml
+
+# Set required variables  
+vim vars.yml
 ```
 
-Edit `vars.yml` and set your GitHub username:
+**Required in `vars.yml`:**
 
 ```yaml
-github_username: "your-github-username"
+github_username: "your-github-username"     # For SSH key fetching
+proxmox_cluster_name: "homelab"            # Cluster name
+ceph_public_network: "192.168.1.0/24"      # If using Ceph storage
 ```
 
-**Note**: The `vars.yml` file is git-ignored to keep your environment-specific settings private.
-
-### 3. Quick Setup (Optional)
-
-For a guided setup experience, run the setup script:
+### 2. Deploy Infrastructure
 
 ```bash
-cd ansible
-./setup.sh
-```
-
-This script will:
-- Create `vars.yml` from the example if it doesn't exist
-- Open files for editing if they need customization
-- Guide you through the initial configuration
-
-### 3. SSH Key Management
-
-The playbook fetches SSH public keys from a specified GitHub user. The username is configured in the `vars.yml` file you created above.
-
-This will fetch all public SSH keys from `https://github.com/{username}.keys` and add them to the root user's authorized_keys on all Proxmox hosts.
-
-**Alternative: Use local SSH key**
-
-If you prefer to use a local SSH key instead, add this to your `vars.yml`:
-
-```yaml
-use_local_ssh_key: true
-local_ssh_key_path: "{{ lookup('env','HOME') }}/.ssh/id_rsa.pub"
-```
-
-And modify the playbook accordingly to use the local key when `use_local_ssh_key` is true.
-
-## Files Structure
-
-### Configuration Files
-- **[inventory.yaml](inventory.yaml)** - Defines your Proxmox hosts and connection details
-- **[vars.yml.example](vars.yml.example)** - Example configuration file (copy to vars.yml)
-- **vars.yml** - Your actual configuration (git-ignored, create from example)
-- **[ansible.cfg](ansible.cfg)** - Ansible configuration settings
-- **[.gitignore](.gitignore)** - Keeps sensitive config files out of git
-- **[setup.sh](setup.sh)** - Quick setup script for initial configuration
-
-### Playbooks
-- **[playbooks/proxmox/](playbooks/proxmox/)** - Proxmox VE specific playbooks
-  - **[initial-setup.yml](playbooks/proxmox/initial-setup.yml)** - Complete initial setup
-  - **[reboot.yml](playbooks/proxmox/reboot.yml)** - Safe rolling reboots
-  - **[health-check.yml](playbooks/proxmox/health-check.yml)** - System health monitoring
-- **[site.yml](site.yml)** - Master playbook that runs setup tasks in order
-
-## Playbook Details
-
-#### proxmox/initial-setup.yml
-
-Performs initial setup on all Proxmox hosts:
-- ✅ Copies SSH keys from specified GitHub user for passwordless authentication
-- ✅ Disables enterprise repositories
-- ✅ Enables community repositories  
-- ✅ Disables enterprise subscription nags
-- ✅ Performs system upgrade (dist-upgrade)
-- ✅ Installs useful packages (vim, htop, curl, etc.)
-- ✅ Checks for reboot requirements
-
-**Benefits of using GitHub SSH keys:**
-- Consistent access across team members
-- Centralized key management
-- Automatic inclusion of all your GitHub SSH keys
-- No need to manage local key files
-
-#### proxmox/reboot.yml
-
-Safely reboots Proxmox hosts one at a time if required after upgrades.
-
-#### proxmox/health-check.yml
-
-Ongoing monitoring and health checks for Proxmox hosts.
-
-## Usage
-
-### First Run (with password authentication)
-
-```bash
-cd ansible
+# Initial setup (uses password, then switches to SSH keys)
 ansible-playbook -k playbooks/proxmox/initial-setup.yml
+
+# Security hardening
+ansible-playbook playbooks/proxmox/harden.yml
+
+# Create HA cluster
+ansible-playbook playbooks/proxmox/cluster-create.yml
+
+# Optional: Deploy Ceph storage
+ansible-playbook playbooks/proxmox/ceph-deploy.yml
 ```
 
-The `-k` flag will prompt for the SSH password for the initial connection.
-
-**Note**: Make sure you've created and configured your `vars.yml` file before running the playbook.
-
-### Subsequent Runs (with key authentication)
+### 3. Verify Deployment
 
 ```bash
-ansible-playbook playbooks/proxmox/initial-setup.yml
-```
-
-### Reboot if Required
-
-After the initial setup, check if any hosts need rebooting:
-
-```bash
-ansible-playbook playbooks/proxmox/reboot.yml
-```
-
-### Health Check
-
-Monitor your Proxmox cluster health:
-
-```bash
+ansible-playbook playbooks/proxmox/verify-hardening.yml
+ansible-playbook playbooks/proxmox/verify-ceph.yml        # if using Ceph
 ansible-playbook playbooks/proxmox/health-check.yml
 ```
 
-### Dry Run (Check Mode)
+## Key Features
 
-To see what changes would be made without actually applying them:
+- **Initial Setup** - SSH keys, repositories, system updates
+- **Security Hardening** - SSH, firewall, fail2ban, kernel parameters
+- **HA Clustering** - Proxmox cluster with corosync
+- **Distributed Storage** - Ceph cluster integration (optional)
+- **Verification** - Automated health and security checks
+
+## File Structure
+
+### Configuration
+
+- `inventory.yaml` - Node IP addresses and connection details
+- `vars.yml` - Environment configuration (created from example)
+- `vars.yml.example` - Template with required variables
+
+### Main Playbooks
+
+- `initial-setup.yml` - Basic Proxmox setup with SSH keys
+- `harden.yml` - Security configuration (SSH, firewall, fail2ban)
+- `cluster-create.yml` - Proxmox HA cluster creation
+- `cluster-add-node.yml` - Add nodes to existing cluster
+- `ceph-deploy.yml` - Complete Ceph storage deployment
+- `ceph-expand.yml` - Add storage/nodes to Ceph cluster
+
+### Verification & Health Checks
+
+- `verify-hardening.yml` - Security validation  
+- `verify-ceph.yml` - Ceph cluster health
+- `health-check.yml` - General system health
+
+### Documentation
+
+- `HARDENING.md` - Security details and troubleshooting
+- `CEPH.md` - Ceph storage setup guide
+- `CLUSTER.md` - Proxmox clustering guide
+
+## Common Operations
+
+### Scaling
 
 ```bash
-ansible-playbook --check playbooks/proxmox/initial-setup.yml
+# Add new nodes to inventory.yaml, then:
+ansible-playbook playbooks/proxmox/initial-setup.yml --limit new-node
+ansible-playbook playbooks/proxmox/cluster-add-node.yml
 ```
 
-## Verification
+### Maintenance
+
+```bash
+ansible-playbook playbooks/proxmox/health-check.yml     # Check cluster health
+ansible-playbook playbooks/proxmox/verify-hardening.yml # Verify security
+ansible-playbook playbooks/proxmox/reboot.yml           # Rolling reboots
+```
+
+### Debug Commands
+
+```bash
+ansible-playbook --check <playbook>        # Dry run
+ansible-playbook <playbook> --limit node1  # Single node
+ansible all -m ping                        # Test connectivity
+```
+
+## Prerequisites  
+
+- Ansible installed on control machine
+- SSH access to Proxmox nodes (initially password, then key-based)
+- Root access on all nodes
+- SSH public keys uploaded to your GitHub account
+- Minimum 3 nodes for full HA setup
+
+## Advanced Features
+
+**Individual Ceph Operations**: Use playbooks in `playbooks/proxmox/ceph/` for specific tasks:
+
+- `ceph/common.yml` - Setup packages and directories only
+- `ceph/osd-add.yml` - Add storage to existing nodes
+- `ceph/status.yml` - Comprehensive health check
+
+**Important**: Read [playbooks/proxmox/CEPH.md](playbooks/proxmox/CEPH.md) first for requirements and network configuration.
+
+## Post-Deployment Validation
 
 After running the playbooks, verify the setup:
 
@@ -170,6 +143,7 @@ After running the playbooks, verify the setup:
 5. **System Updated**: Check `apt list --upgradable` shows no packages
 
 You can verify your GitHub keys were properly fetched by checking:
+
 ```bash
 curl -s https://github.com/YOUR_USERNAME.keys
 ```
@@ -212,27 +186,32 @@ The playbook handles both Bullseye (Debian 11) and Bookworm (Debian 12) reposito
 ## Troubleshooting
 
 ### Configuration Issues
+
 - Ensure `vars.yml` exists (copy from `vars.yml.example`)
 - Verify the GitHub username in `vars.yml` is correct
 - Check file permissions on `vars.yml` if you get access denied errors
 
 ### SSH Connection Issues
+
 - Ensure your Proxmox hosts are reachable
 - Check firewall settings (port 22)
 - Verify root login is enabled in SSH config
 
 ### GitHub SSH Key Issues
+
 - Verify the GitHub username is correct
 - Check that the user has public SSH keys on GitHub: `https://github.com/{username}.keys`
 - Ensure the control machine has internet access to fetch keys from GitHub
 - If GitHub is unreachable, consider using local SSH keys as backup
 
 ### Repository Issues
+
 - Check internet connectivity on Proxmox hosts
 - Verify DNS resolution is working
 - Check `/etc/apt/sources.list.d/` for conflicting repositories
 
 ### Upgrade Issues
+
 - Monitor disk space during upgrades
 - Check `/var/log/apt/` for detailed upgrade logs
 - Some packages may require manual intervention
@@ -240,11 +219,13 @@ The playbook handles both Bullseye (Debian 11) and Bookworm (Debian 12) reposito
 ## Files Created/Modified
 
 The playbooks will backup original files before modification and create these config files:
+
 - **vars.yml** - Your environment-specific configuration (from vars.yml.example)  
 - **inventory.yaml** - Your Proxmox host definitions
 - **.gitignore** - Keeps sensitive files out of version control
 
 System files modified on Proxmox hosts:
+
 - `/etc/apt/sources.list.backup`
 - `/etc/apt/sources.list.d/pve-enterprise.list.backup`
 - `/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js.backup`

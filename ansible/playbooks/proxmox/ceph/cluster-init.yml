@@ -1,0 +1,244 @@
+---
+- name: Initialize Ceph Cluster (3+ nodes)
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Ceph cluster configuration
+    cluster_network: "{{ ceph_cluster_network | default('10.0.1.0/24') }}"
+    public_network: "{{ ceph_public_network | default('192.168.1.0/24') }}"
+    
+    # First three hosts will be monitors  
+    mon_hosts: "{{ groups['proxmox'][:3] }}"
+    
+    # Pool configuration
+    default_pools:
+      - name: "rbd"
+        pg_num: 128
+        pgp_num: 128
+        type: "replicated"
+        size: 3
+        min_size: 2
+
+  tasks:
+    - name: Check if Ceph cluster already exists
+      stat:
+        path: /etc/ceph/ceph.conf
+      register: ceph_config_exists
+
+    - name: Verify this is initial setup
+      fail:
+        msg: "This playbook is for initial cluster setup only. Use ceph-add-node.yml for existing clusters."
+      when: 
+        - ceph_config_exists.stat.exists
+      run_once: true
+
+    - name: Generate cluster UUID
+      command: uuidgen
+      register: cluster_uuid_result
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Set cluster UUID fact
+      set_fact:
+        ceph_cluster_uuid: "{{ hostvars[groups['proxmox'][0]]['cluster_uuid_result']['stdout'] }}"
+
+    - name: Create Ceph configuration file
+      template:
+        src: ./templates/ceph.conf.j2
+        dest: /etc/ceph/ceph.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+    - name: Generate monitor keyring
+      command: ceph-authtool --create-keyring /etc/ceph/ceph.mon.keyring --gen-key -n mon. --cap mon 'allow *'
+      args:
+        creates: /etc/ceph/ceph.mon.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Generate admin keyring
+      command: ceph-authtool --create-keyring /etc/ceph/ceph.client.admin.keyring --gen-key -n client.admin --cap mon 'allow *' --cap osd 'allow *' --cap mds 'allow *' --cap mgr 'allow *'
+      args:
+        creates: /etc/ceph/ceph.client.admin.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Generate bootstrap-osd keyring
+      command: ceph-authtool --create-keyring /var/lib/ceph/bootstrap-osd/ceph.keyring --gen-key -n client.bootstrap-osd --cap mon 'profile bootstrap-osd' --cap mgr 'allow r'
+      args:
+        creates: /var/lib/ceph/bootstrap-osd/ceph.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Add admin keyring to monitor keyring
+      command: ceph-authtool /etc/ceph/ceph.mon.keyring --import-keyring /etc/ceph/ceph.client.admin.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Add bootstrap-osd keyring to monitor keyring
+      command: ceph-authtool /etc/ceph/ceph.mon.keyring --import-keyring /var/lib/ceph/bootstrap-osd/ceph.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Set keyring ownership and permissions
+      file:
+        path: "{{ item }}"
+        owner: ceph
+        group: ceph
+        mode: '0600'
+      loop:
+        - /etc/ceph/ceph.mon.keyring
+        - /etc/ceph/ceph.client.admin.keyring
+        - /var/lib/ceph/bootstrap-osd/ceph.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Fetch keyrings from first node
+      fetch:
+        src: "{{ item }}"
+        dest: "/tmp/{{ item | basename }}"
+        flat: yes
+      loop:
+        - /etc/ceph/ceph.mon.keyring
+        - /etc/ceph/ceph.client.admin.keyring
+        - /var/lib/ceph/bootstrap-osd/ceph.keyring
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Distribute keyrings to all nodes
+      copy:
+        src: "/tmp/{{ item | basename }}"
+        dest: "{{ item }}"
+        owner: ceph
+        group: ceph
+        mode: '0600'
+        backup: yes
+      loop:
+        - /etc/ceph/ceph.mon.keyring
+        - /etc/ceph/ceph.client.admin.keyring
+        - /var/lib/ceph/bootstrap-osd/ceph.keyring
+      when: inventory_hostname != groups['proxmox'][0]
+
+    - name: Generate monitor map
+      command: monmaptool --create --add {{ hostvars[item]['inventory_hostname'] }} {{ hostvars[item]['ansible_default_ipv4']['address'] }} --fsid {{ ceph_cluster_uuid }} /etc/ceph/monmap
+      loop: "{{ mon_hosts }}"
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Fetch monitor map
+      fetch:
+        src: /etc/ceph/monmap
+        dest: /tmp/monmap
+        flat: yes
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Distribute monitor map to all nodes
+      copy:
+        src: /tmp/monmap
+        dest: /etc/ceph/monmap
+        owner: ceph
+        group: ceph
+        mode: '0644'
+      when: inventory_hostname != groups['proxmox'][0]
+
+    - name: Create monitor data directory
+      file:
+        path: "/var/lib/ceph/mon/ceph-{{ inventory_hostname }}"
+        state: directory
+        owner: ceph
+        group: ceph
+        mode: '0755'
+      when: inventory_hostname in mon_hosts
+
+    - name: Initialize monitor daemon
+      command: ceph-mon --mkfs -i {{ inventory_hostname }} --monmap /etc/ceph/monmap --keyring /etc/ceph/ceph.mon.keyring
+      become_user: ceph
+      when: inventory_hostname in mon_hosts
+
+    - name: Mark monitor as done
+      file:
+        path: "/var/lib/ceph/mon/ceph-{{ inventory_hostname }}/done"
+        state: touch
+        owner: ceph
+        group: ceph
+      when: inventory_hostname in mon_hosts
+
+    - name: Start and enable monitor service
+      systemd:
+        name: "ceph-mon@{{ inventory_hostname }}"
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      when: inventory_hostname in mon_hosts
+
+    - name: Wait for monitors to start
+      wait_for:
+        port: 6789
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 5
+        timeout: 60
+      when: inventory_hostname in mon_hosts
+
+    - name: Start and enable manager service on monitor nodes
+      systemd:
+        name: "ceph-mgr@{{ inventory_hostname }}"
+        state: started
+        enabled: yes
+      when: inventory_hostname in mon_hosts
+
+    - name: Enable mgr module dashboard
+      command: ceph mgr module enable dashboard
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+      ignore_errors: yes
+
+    - name: Create default pools
+      command: ceph osd pool create {{ item.name }} {{ item.pg_num }} {{ item.pgp_num }}
+      loop: "{{ default_pools }}"
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+      ignore_errors: yes
+
+    - name: Set pool replication size
+      command: ceph osd pool set {{ item.name }} size {{ item.size }}
+      loop: "{{ default_pools }}"
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+      ignore_errors: yes
+
+    - name: Set pool min_size
+      command: ceph osd pool set {{ item.name }} min_size {{ item.min_size }}
+      loop: "{{ default_pools }}"
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+      ignore_errors: yes
+
+    - name: Enable RBD application on pools
+      command: ceph osd pool application enable {{ item.name }} rbd
+      loop: "{{ default_pools }}"
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+      ignore_errors: yes
+
+    - name: Display initial setup completion
+      debug:
+        msg: |
+          🎉 Ceph cluster initialization completed!
+          
+          Cluster Details:
+          - Cluster UUID: {{ ceph_cluster_uuid }}
+          - Monitor nodes: {{ mon_hosts | join(', ') }}
+          - Total nodes: {{ groups['proxmox'] | length }}
+          
+          Next Steps:
+          1. Run ceph-osd-add.yml to add storage
+          2. Monitor cluster: ceph -s
+          3. Add Ceph storage to Proxmox
+      run_once: true

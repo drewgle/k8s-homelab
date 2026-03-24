@@ -1,0 +1,13 @@
+---
+# Ceph Complete Setup - Orchestrates initial cluster deployment
+- name: Run Common Setup Tasks
+  import_playbook: ceph/common.yml
+
+- name: Initialize Ceph Cluster  
+  import_playbook: ceph/cluster-init.yml
+
+- name: Add OSDs to Cluster
+  import_playbook: ceph/osd-add.yml
+
+- name: Final Status Check
+  import_playbook: ceph/status.yml

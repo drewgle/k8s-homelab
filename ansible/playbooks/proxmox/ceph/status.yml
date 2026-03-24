@@ -1,0 +1,164 @@
+---
+- name: Ceph Cluster Status and Health Check
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  tasks:
+    - name: Check if Ceph is configured
+      stat:
+        path: /etc/ceph/ceph.conf
+      register: ceph_configured
+
+    - name: Skip non-Ceph nodes
+      meta: end_host
+      when: not ceph_configured.stat.exists
+
+    - name: Test cluster connectivity
+      command: ceph health
+      register: cluster_health
+      failed_when: false
+      changed_when: false
+
+    - name: Check monitor service status
+      systemd:
+        name: "ceph-mon@{{ inventory_hostname }}"
+      register: mon_service_status
+      failed_when: false
+
+    - name: Check manager service status
+      systemd:
+        name: "ceph-mgr@{{ inventory_hostname }}"
+      register: mgr_service_status
+      failed_when: false
+
+    - name: Gather cluster status (from first accessible node)
+      block:
+        - name: Get cluster status
+          command: ceph -s
+          register: cluster_status
+          delegate_to: "{{ item }}"
+          run_once: true
+          loop: "{{ groups['proxmox'] }}"
+          when: 
+            - hostvars[item]['cluster_health']['rc'] | default(1) == 0
+            - hostvars[item]['ceph_configured']['stat']['exists'] | default(false)
+
+        - name: Get detailed health information
+          command: ceph health detail
+          register: health_detail
+          delegate_to: "{{ groups['proxmox'][0] }}"
+          run_once: true
+          ignore_errors: yes
+
+        - name: Get OSD tree
+          command: ceph osd tree
+          register: osd_tree
+          delegate_to: "{{ groups['proxmox'][0] }}"
+          run_once: true
+          ignore_errors: yes
+
+        - name: Get storage usage
+          command: ceph df
+          register: storage_usage
+          delegate_to: "{{ groups['proxmox'][0] }}"
+          run_once: true
+          ignore_errors: yes
+
+        - name: Get pool information
+          command: ceph osd pool ls detail
+          register: pool_info
+          delegate_to: "{{ groups['proxmox'][0] }}"
+          run_once: true
+          ignore_errors: yes
+
+      rescue:
+        - name: Set error status
+          set_fact:
+            cluster_error: "Unable to gather cluster status - cluster may be down"
+          run_once: true
+
+    - name: Display individual node status
+      debug:
+        msg: |
+          Node: {{ inventory_hostname }}
+          ────────────────────────────────
+          • Ceph configured: {{ 'Yes' if ceph_configured.stat.exists else 'No' }}
+          • Cluster connectivity: {{ 'OK' if cluster_health.rc == 0 else 'FAILED (' + cluster_health.stderr | default('unknown') + ')' }}
+          • Monitor service: {{ mon_service_status.status.ActiveState | default('N/A') }}
+          • Manager service: {{ mgr_service_status.status.ActiveState | default('N/A') }}
+
+    - name: Display comprehensive cluster status
+      debug:
+        msg: |
+          
+          🏥 CEPH CLUSTER HEALTH REPORT
+          ════════════════════════════════════════════════════════
+          
+          {% if cluster_error is defined %}
+          ❌ {{ cluster_error }}
+          {% else %}
+          
+          Overall Status:
+          {{ cluster_status.stdout_lines | join('\n          ') }}
+          
+          {% if health_detail.rc == 0 and health_detail.stdout_lines | length > 1 %}
+          Health Details:
+          {{ health_detail.stdout_lines | join('\n          ') }}
+          {% endif %}
+          
+          {% if osd_tree.rc == 0 %}
+          OSD Tree:
+          {{ osd_tree.stdout_lines | join('\n          ') }}
+          {% endif %}
+          
+          {% if storage_usage.rc == 0 %}
+          Storage Usage:
+          {{ storage_usage.stdout_lines | join('\n          ') }}
+          {% endif %}
+          
+          {% if pool_info.rc == 0 %}
+          Pool Information:
+          {{ pool_info.stdout_lines | join('\n          ') }}
+          {% endif %}
+          {% endif %}
+          
+          Node Summary:
+          {% for host in groups['proxmox'] %}
+          {% if hostvars[host]['ceph_configured']['stat']['exists'] %}
+          • {{ host }}: {{ 'ONLINE' if hostvars[host]['cluster_health']['rc'] == 0 else 'OFFLINE' }}
+          {% else %}
+          • {{ host }}: Not configured for Ceph
+          {% endif %}
+          {% endfor %}
+          
+          ════════════════════════════════════════════════════════
+      run_once: true
+
+    - name: Check for common issues
+      debug:
+        msg: |
+          ⚠️  Common Issues to Check:
+          
+          {% if cluster_health.rc != 0 %}
+          🔴 Cluster Connectivity Issues:
+          • Check network connectivity between nodes
+          • Verify firewall allows Ceph ports (6789, 6800-7300)
+          • Ensure SSH key authentication is working
+          • Check if monitor services are running
+          {% endif %}
+          
+          Quick Commands for Investigation:
+          • Monitor cluster events: ceph -w
+          • Check detailed logs: sudo tail -f /var/log/ceph/*.log
+          • Verify time sync: timedatectl status
+          • Test network: ping <other-nodes>
+          • Check services: systemctl status ceph-mon@$(hostname)
+          
+      run_once: true
+      when: 
+        - cluster_health.rc != 0 or 
+          (health_detail.stdout is defined and 'HEALTH_WARN' in health_detail.stdout) or
+          (health_detail.stdout is defined and 'HEALTH_ERR' in health_detail.stdout)

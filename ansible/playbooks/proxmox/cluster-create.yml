@@ -1,0 +1,188 @@
+---
+- name: Create Proxmox VE Cluster
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Cluster configuration
+    cluster_name: "{{ proxmox_cluster_name | default('homelab') }}"
+    cluster_network: "{{ proxmox_cluster_network | default(ansible_default_ipv4.network + '/' + ansible_default_ipv4.netmask) }}"
+    
+    # First node will be the cluster creator
+    cluster_master: "{{ groups['proxmox'][0] }}"
+
+  tasks:
+    - name: Check minimum node requirements
+      assert:
+        that: groups['proxmox'] | length >= 2
+        fail_msg: "Proxmox cluster requires at least 2 nodes"
+        success_msg: "Sufficient nodes available for Proxmox cluster ({{ groups['proxmox'] | length }} nodes)"
+      run_once: true
+
+    - name: Check if Proxmox cluster already exists
+      command: pvecm status
+      register: cluster_status_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify no existing cluster
+      fail:
+        msg: "Proxmox cluster already exists on {{ inventory_hostname }}. Use cluster-add-node.yml to add nodes."
+      when: cluster_status_check.rc == 0
+
+    - name: Check for cluster network connectivity
+      command: ping -c 3 {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+      register: network_test
+      loop: "{{ groups['proxmox'] }}"
+      when: inventory_hostname != item
+      failed_when: network_test.rc != 0
+      changed_when: false
+
+    - name: Ensure required packages are installed
+      apt:
+        name:
+          - corosync
+          - pve-cluster
+          - ceph-common
+        state: present
+        update_cache: yes
+
+    - name: Stop pve-cluster service on all nodes (preparation)
+      systemd:
+        name: pve-cluster
+        state: stopped
+      ignore_errors: yes
+
+    - name: Wait for services to stop
+      pause:
+        seconds: 10
+
+    - name: Create cluster on master node
+      command: pvecm create {{ cluster_name }} --bindnet0_addr {{ ansible_default_ipv4.address }}
+      when: inventory_hostname == cluster_master
+      register: cluster_creation
+      
+    - name: Wait for cluster to initialize
+      pause:
+        seconds: 15
+        prompt: "Waiting for cluster to initialize on master node..."
+      when: inventory_hostname == cluster_master
+
+    - name: Verify cluster creation on master
+      command: pvecm status
+      register: master_cluster_status
+      when: inventory_hostname == cluster_master
+      failed_when: master_cluster_status.rc != 0
+
+    - name: Display cluster creation status
+      debug:
+        msg: |
+          ✅ Proxmox cluster '{{ cluster_name }}' created successfully!
+          
+          Master Node: {{ cluster_master }}
+          Cluster Status:
+          {{ master_cluster_status.stdout_lines | join('\n          ') }}
+      when: inventory_hostname == cluster_master
+
+    - name: Get cluster information for joining
+      command: pvecm status
+      register: cluster_info
+      when: inventory_hostname == cluster_master
+
+    - name: Extract cluster ring info
+      shell: pvecm nodes | grep {{ cluster_master }} | awk '{print $3}'
+      register: master_ip
+      when: inventory_hostname == cluster_master
+      
+    - name: Add remaining nodes to cluster
+      command: pvecm add {{ hostvars[cluster_master]['ansible_default_ipv4']['address'] }} --force
+      when: 
+        - inventory_hostname != cluster_master
+        - hostvars[cluster_master]['cluster_creation'] is defined
+      register: node_join
+      failed_when: false
+
+    - name: Check node join status
+      debug:
+        msg: |
+          Node {{ inventory_hostname }} join status: {{ 'SUCCESS' if node_join.rc == 0 else 'FAILED - ' + node_join.stderr | default('unknown error') }}
+      when: inventory_hostname != cluster_master
+
+    - name: Wait for all nodes to stabilize
+      pause:
+        seconds: 30
+        prompt: "Allowing cluster to stabilize with all nodes..."
+      run_once: true
+
+    - name: Verify final cluster status
+      command: pvecm status
+      register: final_cluster_status
+      changed_when: false
+
+    - name: Get cluster nodes list
+      command: pvecm nodes
+      register: cluster_nodes
+      run_once: true
+      delegate_to: "{{ cluster_master }}"
+      changed_when: false
+
+    - name: Display final cluster information
+      debug:
+        msg: |
+          
+          🎉 Proxmox VE Cluster Setup Complete!
+          ======================================
+          
+          Cluster Name: {{ cluster_name }}
+          Total Nodes: {{ groups['proxmox'] | length }}
+          
+          Cluster Nodes:
+          {{ cluster_nodes.stdout_lines | join('\n          ') }}
+          
+          Next Steps:
+          1. Access any node's web interface (https://NODE-IP:8006)
+          2. Configure shared storage (NFS, Ceph, etc.)
+          3. Set up high availability (HA) for VMs
+          4. Configure backup schedules across cluster
+          5. Test VM migration between nodes
+          
+          Important Notes:
+          • All nodes now share the same cluster configuration
+          • VMs can be migrated between any cluster nodes
+          • Configure storage for shared VM/container data
+          • Web interface is accessible from any node IP
+      run_once: true
+
+    - name: Restart cluster services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        daemon_reload: yes
+      loop:
+        - pve-cluster
+        - corosync
+        - pvedaemon
+        - pveproxy
+      ignore_errors: yes
+
+    - name: Final connectivity test
+      wait_for:
+        port: 8006
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 10
+        timeout: 60
+      ignore_errors: yes
+
+    - name: Display access information
+      debug:
+        msg: |
+          Web Interface Access:
+          {% for host in groups['proxmox'] %}
+          • {{ host }}: https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:8006
+          {% endfor %}
+          
+          Use any of these URLs to access the cluster management interface.
+      run_once: true

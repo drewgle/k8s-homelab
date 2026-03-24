@@ -1,0 +1,200 @@
+---
+- name: Add Node to Existing Proxmox VE Cluster
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  tasks:
+    - name: Check current cluster status on all nodes
+      command: pvecm status
+      register: cluster_status_check
+      failed_when: false
+      changed_when: false
+
+    - name: Identify cluster nodes and new nodes
+      set_fact:
+        existing_cluster_nodes: "{{ groups['proxmox'] | select('in', hostvars.keys()) | select('extract', hostvars, 'cluster_status_check', 'rc') | select('equalto', 0) | list }}"
+        new_nodes: "{{ groups['proxmox'] | select('in', hostvars.keys()) | reject('extract', hostvars, 'cluster_status_check', 'rc') | select('equalto', 0) | list }}"
+      run_once: true
+
+    - name: Verify cluster exists
+      fail:
+        msg: "No existing Proxmox cluster found. Use cluster-create.yml to create a cluster first."
+      when: existing_cluster_nodes | length == 0
+      run_once: true
+
+    - name: Display node addition plan
+      debug:
+        msg: |
+          Adding {{ new_nodes | length }} new node(s) to existing Proxmox cluster:
+          • Existing cluster nodes: {{ existing_cluster_nodes | join(', ') }}
+          • New nodes to add: {{ new_nodes | join(', ') | default('none') }}
+      run_once: true
+
+    - name: Exit if no new nodes to add
+      meta: end_play
+      when: new_nodes | length == 0
+      run_once: true
+
+    - name: Get cluster information from existing node
+      command: pvecm status
+      register: existing_cluster_info
+      delegate_to: "{{ existing_cluster_nodes[0] }}"
+      run_once: true
+      changed_when: false
+
+    - name: Get cluster name from existing cluster
+      shell: pvecm status | grep -E '^Cluster name:' | cut -d ':' -f 2 | xargs
+      register: cluster_name_info
+      delegate_to: "{{ existing_cluster_nodes[0] }}"
+      run_once: true
+      changed_when: false
+
+    - name: Set cluster name fact
+      set_fact:
+        cluster_name: "{{ cluster_name_info.stdout }}"
+      run_once: true
+
+    - name: Display cluster information
+      debug:
+        msg: |
+          Existing Cluster Information:
+          • Cluster Name: {{ cluster_name }}
+          • Primary Node: {{ existing_cluster_nodes[0] }}
+          
+          Current Status:
+          {{ existing_cluster_info.stdout_lines | join('\n          ') }}
+      run_once: true
+
+    - name: Ensure required packages are installed on new nodes
+      apt:
+        name:
+          - corosync
+          - pve-cluster
+          - ceph-common
+        state: present
+        update_cache: yes
+      when: inventory_hostname in new_nodes
+
+    - name: Stop pve-cluster service on new nodes (preparation)
+      systemd:
+        name: pve-cluster
+        state: stopped
+      when: inventory_hostname in new_nodes
+      ignore_errors: yes
+
+    - name: Test network connectivity to cluster
+      command: ping -c 3 {{ hostvars[existing_cluster_nodes[0]]['ansible_default_ipv4']['address'] }}
+      register: connectivity_test
+      when: inventory_hostname in new_nodes
+      failed_when: connectivity_test.rc != 0
+      changed_when: false
+
+    - name: Join new nodes to cluster
+      command: pvecm add {{ hostvars[existing_cluster_nodes[0]]['ansible_default_ipv4']['address'] }} --force
+      when: inventory_hostname in new_nodes
+      register: cluster_join_result
+      failed_when: false
+
+    - name: Display join results for each new node
+      debug:
+        msg: |
+          Node {{ inventory_hostname }} join result: 
+          {{ 'SUCCESS ✓' if cluster_join_result.rc == 0 else 'FAILED ✗ - ' + (cluster_join_result.stderr | default('unknown error')) }}
+      when: 
+        - inventory_hostname in new_nodes
+        - cluster_join_result is defined
+
+    - name: Wait for cluster to stabilize after node addition
+      pause:
+        seconds: 30
+        prompt: "Waiting for cluster to stabilize with new nodes..."
+      run_once: true
+      when: new_nodes | length > 0
+
+    - name: Restart cluster services on all nodes
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        daemon_reload: yes
+      loop:
+        - pve-cluster
+        - corosync
+        - pvedaemon
+        - pveproxy
+      ignore_errors: yes
+
+    - name: Wait for services to restart
+      pause:
+        seconds: 20
+        prompt: "Waiting for cluster services to restart..."
+      run_once: true
+
+    - name: Verify final cluster status
+      command: pvecm status
+      register: final_cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Get updated cluster nodes list
+      command: pvecm nodes
+      register: updated_cluster_nodes
+      run_once: true
+      delegate_to: "{{ existing_cluster_nodes[0] }}"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Check web interface availability on new nodes
+      wait_for:
+        port: 8006
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 10
+        timeout: 60
+      when: inventory_hostname in new_nodes
+      ignore_errors: yes
+
+    - name: Display final cluster status
+      debug:
+        msg: |
+          
+          🎉 Node Addition to Proxmox Cluster Complete!
+          ============================================
+          
+          Cluster Name: {{ cluster_name }}
+          Total Nodes: {{ groups['proxmox'] | length }}
+          Successfully Added: {{ new_nodes | select('in', hostvars.keys()) | select('extract', hostvars, 'cluster_join_result', 'rc') | select('equalto', 0) | list | length }} nodes
+          
+          {% if updated_cluster_nodes.rc == 0 %}
+          Updated Cluster Nodes:
+          {{ updated_cluster_nodes.stdout_lines | join('\n          ') }}
+          {% endif %}
+          
+          Node Status Summary:
+          {% for node in new_nodes %}
+          {% if hostvars[node]['cluster_join_result']['rc'] == 0 %}
+          ✓ {{ node }}: Successfully joined cluster
+          {% else %}
+          ✗ {{ node }}: Failed to join - {{ hostvars[node]['cluster_join_result']['stderr'] | default('unknown error') }}
+          {% endif %}
+          {% endfor %}
+          
+          Web Interface Access (all nodes):
+          {% for host in groups['proxmox'] %}
+          • {{ host }}: https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:8006
+          {% endfor %}
+          
+          Next Steps:
+          1. Verify cluster health in web interface
+          2. Configure shared storage access for new nodes
+          3. Test VM migration to/from new nodes
+          4. Update HA groups if using high availability
+          5. Configure backup schedules for new nodes
+          
+          Troubleshooting:
+          • If a node failed to join, check network connectivity and firewall settings
+          • Ensure SSH key access is working between all nodes
+          • Check /var/log/pve-cluster/ for detailed error logs
+          • Verify time synchronization between all nodes
+      run_once: true

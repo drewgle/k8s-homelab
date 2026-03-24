@@ -1,0 +1,278 @@
+---
+- name: Security Hardening Verification
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../vars.yml
+
+  vars:
+    verification_results: []
+    
+  tasks:
+    - name: Initialize verification results
+      set_fact:
+        verification_results: []
+
+    #
+    # SSH Security Configuration Checks
+    #
+    - name: Get SSH daemon test configuration
+      command: sshd -T
+      register: sshd_config
+      failed_when: false
+      changed_when: false
+
+    - name: Parse SSH configuration settings
+      set_fact:
+        ssh_settings: "{{ sshd_config.stdout_lines | 
+          map('trim') | 
+          select('match', '^(passwordauthentication|pubkeyauthentication|permitrootlogin|permitemptypasswords|x11forwarding|protocol|maxauthtries|clientaliveinterval)\\s+') |
+          map('split', ' ') |
+          items2dict }}"
+      when: sshd_config.rc == 0
+
+    - name: Check SSH password authentication
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'SSH Password Authentication', 'status': 'OK' if ssh_settings.passwordauthentication == 'no' else 'FAIL', 'details': 'Disabled' if ssh_settings.passwordauthentication == 'no' else 'Enabled - should be disabled'}] }}"
+      when: ssh_settings is defined and ssh_settings.passwordauthentication is defined
+
+    - name: Check SSH public key authentication
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'SSH Public Key Authentication', 'status': 'OK' if ssh_settings.pubkeyauthentication == 'yes' else 'WARN', 'details': 'Enabled' if ssh_settings.pubkeyauthentication == 'yes' else 'Disabled'}] }}"
+      when: ssh_settings is defined and ssh_settings.pubkeyauthentication is defined
+
+    - name: Check SSH root login policy
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'SSH Root Login', 'status': 'OK' if ssh_settings.permitrootlogin in ['no', 'prohibit-password'] else 'WARN', 'details': ssh_settings.permitrootlogin | default('unknown')}] }}"
+      when: ssh_settings is defined and ssh_settings.permitrootlogin is defined
+
+    - name: Check SSH empty passwords
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'SSH Empty Passwords', 'status': 'OK' if ssh_settings.permitemptypasswords == 'no' else 'FAIL', 'details': 'Disabled' if ssh_settings.permitemptypasswords == 'no' else 'Enabled - should be disabled'}] }}"
+      when: ssh_settings is defined and ssh_settings.permitemptypasswords is defined
+
+    - name: Check X11 forwarding
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'SSH X11 Forwarding', 'status': 'OK' if ssh_settings.x11forwarding == 'no' else 'WARN', 'details': 'Disabled' if ssh_settings.x11forwarding == 'no' else 'Enabled'}] }}"
+      when: ssh_settings is defined and ssh_settings.x11forwarding is defined
+
+    #
+    # Firewall Status Checks
+    #
+    - name: Check UFW firewall status
+      command: ufw status
+      register: ufw_status
+      failed_when: false
+      changed_when: false
+
+    - name: Record firewall status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'UFW Firewall', 'status': 'OK' if 'Status: active' in ufw_status.stdout else 'FAIL', 'details': 'Active' if 'Status: active' in ufw_status.stdout else 'Inactive or not configured'}] }}"
+      when: ufw_status.rc == 0
+
+    - name: Get UFW rules count
+      shell: ufw status numbered | grep -E '^\s*\[' | wc -l
+      register: ufw_rules_count
+      failed_when: false
+      changed_when: false
+      when: "'Status: active' in ufw_status.stdout"
+
+    - name: Record firewall rules
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Firewall Rules', 'status': 'INFO', 'details': ufw_rules_count.stdout + ' rules configured'}] }}"
+      when: 
+        - ufw_rules_count is defined 
+        - ufw_rules_count.rc == 0
+
+    #
+    # Fail2Ban Status Checks
+    #
+    - name: Check Fail2Ban service status
+      service_facts:
+
+    - name: Record Fail2Ban service status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Fail2Ban Service', 'status': 'OK' if ansible_facts.services['fail2ban.service']['state'] == 'running' else 'WARN', 'details': 'Running' if ansible_facts.services['fail2ban.service']['state'] == 'running' else 'Not running'}] }}"
+      when: "'fail2ban.service' in ansible_facts.services"
+
+    - name: Get Fail2Ban jail status
+      command: fail2ban-client status
+      register: fail2ban_status
+      failed_when: false
+      changed_when: false
+      when: "'fail2ban.service' in ansible_facts.services and ansible_facts.services['fail2ban.service']['state'] == 'running'"
+
+    - name: Parse Fail2Ban jails
+      set_fact:
+        fail2ban_jails: "{{ fail2ban_status.stdout | regex_search('Jail list:\\s*(.+)', '\\1') | first | split(',') | map('trim') | list }}"
+      when: 
+        - fail2ban_status is defined
+        - fail2ban_status.rc == 0
+
+    - name: Record Fail2Ban jails
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Fail2Ban Jails', 'status': 'INFO', 'details': (fail2ban_jails | length | string) + ' active jails: ' + (fail2ban_jails | join(', '))}] }}"
+      when: fail2ban_jails is defined
+
+    #
+    # Kernel Security Parameters
+    #
+    - name: Check critical kernel security parameters
+      sysctl:
+        name: "{{ item.name }}"
+      register: sysctl_checks
+      failed_when: false
+      loop:
+        - { name: 'net.ipv4.conf.all.accept_redirects', expected: '0' }
+        - { name: 'net.ipv4.conf.all.accept_source_route', expected: '0' }
+        - { name: 'net.ipv4.tcp_syncookies', expected: '1' }
+        - { name: 'kernel.randomize_va_space', expected: '2' }
+        - { name: 'kernel.dmesg_restrict', expected: '1' }
+        - { name: 'fs.suid_dumpable', expected: '0' }
+
+    - name: Record kernel security parameters
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Kernel Parameter: ' + item.item.name, 'status': 'OK' if item.value == item.item.expected else 'FAIL', 'details': 'Value: ' + item.value | string + ' (Expected: ' + item.item.expected + ')'}] }}"
+      loop: "{{ sysctl_checks.results }}"
+      when: 
+        - item is not failed
+        - item.value is defined
+
+    #
+    # File Permissions Checks
+    #
+    - name: Check critical file permissions
+      stat:
+        path: "{{ item.path }}"
+      register: file_perms
+      loop:
+        - { path: '/etc/passwd', expected_mode: '0644', expected_owner: 'root' }
+        - { path: '/etc/shadow', expected_mode: '0640', expected_owner: 'root' }
+        - { path: '/etc/ssh/sshd_config', expected_mode: '0600', expected_owner: 'root' }
+
+    - name: Record file permission status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'File Permissions: ' + item.item.path, 'status': 'OK' if (item.stat.mode == item.item.expected_mode and item.stat.pw_name == item.item.expected_owner) else 'WARN', 'details': 'Mode: ' + item.stat.mode + ', Owner: ' + item.stat.pw_name + ':' + item.stat.gr_name}] }}"
+      loop: "{{ file_perms.results }}"
+      when: 
+        - item.stat.exists
+
+    #
+    # Security Services Status
+    #
+    - name: Check security services status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': item.name + ' Service', 'status': 'OK' if item.name + '.service' in ansible_facts.services and ansible_facts.services[item.name + '.service']['state'] == 'running' else 'WARN', 'details': 'Running' if item.name + '.service' in ansible_facts.services and ansible_facts.services[item.name + '.service']['state'] == 'running' else 'Not running or not installed'}] }}"
+      loop:
+        - { name: 'chrony' }
+        - { name: 'auditd' }
+        - { name: 'ufw' }
+
+    #
+    # Security Updates Check
+    #
+    - name: Check for available security updates
+      shell: apt list --upgradable 2>/dev/null | grep -c security || echo "0"
+      register: security_updates
+      failed_when: false
+      changed_when: false
+
+    - name: Record security updates status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Security Updates', 'status': 'OK' if security_updates.stdout | int == 0 else 'WARN', 'details': security_updates.stdout + ' security updates available'}] }}"
+      when: security_updates.rc == 0
+
+    #
+    # Proxmox Specific Security Checks
+    #
+    - name: Check Proxmox web daemon status
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Proxmox Web Daemon', 'status': 'OK' if 'pvedaemon.service' in ansible_facts.services and ansible_facts.services['pvedaemon.service']['state'] == 'running' else 'WARN', 'details': 'Running' if 'pvedaemon.service' in ansible_facts.services and ansible_facts.services['pvedaemon.service']['state'] == 'running' else 'Not running'}] }}"
+
+    - name: Check if enterprise repository is disabled
+      lineinfile:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+        regexp: '^deb https://enterprise\.proxmox\.com'
+        state: absent
+      check_mode: yes
+      register: enterprise_repo_check
+      failed_when: false
+
+    - name: Record enterprise repository status  
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Enterprise Repository', 'status': 'OK' if not enterprise_repo_check.changed else 'WARN', 'details': 'Disabled (recommended for home use)' if not enterprise_repo_check.changed else 'Still enabled'}] }}"
+
+    #
+    # Collect All Results and Display Summary
+    #
+    - name: Gather all verification results from all nodes
+      set_fact:
+        all_results: "{{ ansible_play_hosts | map('extract', hostvars, 'verification_results') | select | list | flatten }}"
+      run_once: true
+
+    - name: Display security verification summary
+      debug:
+        msg: |
+          
+          🔒 SECURITY HARDENING VERIFICATION SUMMARY
+          ===========================================
+          
+          {% for result in all_results %}
+          {% if result.status == 'OK' %}
+          ✅ {{ result.check }}: {{ result.details }}
+          {% elif result.status == 'WARN' %}
+          ⚠️  {{ result.check }}: {{ result.details }}
+          {% elif result.status == 'INFO' %}
+          ℹ️  {{ result.check }}: {{ result.details }}
+          {% else %}
+          ❌ {{ result.check }}: {{ result.details }}
+          {% endif %}
+          {% endfor %}
+          
+          {% set ok_count = all_results | selectattr('status', 'equalto', 'OK') | list | length %}
+          {% set warn_count = all_results | selectattr('status', 'equalto', 'WARN') | list | length %}
+          {% set fail_count = all_results | selectattr('status', 'equalto', 'FAIL') | list | length %}
+          {% set info_count = all_results | selectattr('status', 'equalto', 'INFO') | list | length %}
+          
+          SUMMARY: {{ ok_count }} OK, {{ warn_count }} Warnings, {{ fail_count }} Failures, {{ info_count }} Info
+          
+          {% if fail_count == 0 and warn_count == 0 %}
+          🎉 Security hardening is fully compliant!
+          
+          Maintenance:
+          • Monitor logs: tail -f /var/log/fail2ban.log
+          • Check updates: apt list --upgradable | grep security
+          • Review audit: ausearch -ts week-ago
+          {% elif fail_count == 0 %}
+          ⚠️  Security is operational with warnings - review items above
+          • Some settings may need adjustment for your environment
+          • Monitor for any security alerts or suspicious activity  
+          {% else %}
+          🚨 Security hardening has failures - immediate attention required
+          
+          Next steps:
+          • Re-run hardening playbook: ansible-playbook playbooks/proxmox/harden.yml
+          • Check SSH config: systemctl status ssh && vi /etc/ssh/sshd_config
+          • Verify firewall: ufw status verbose
+          • Review services: systemctl --failed
+          {% endif %}
+          
+          📚 Documentation: playbooks/proxmox/HARDENING.md
+          
+      run_once: true
+
+    - name: Display per-node security summary
+      debug:
+        msg: |
+          
+          🔒 Node {{ inventory_hostname }} Security Summary:
+          {% set node_results = verification_results %}
+          {% set node_ok = node_results | selectattr('status', 'equalto', 'OK') | list | length %}
+          {% set node_warn = node_results | selectattr('status', 'equalto', 'WARN') | list | length %}
+          {% set node_fail = node_results | selectattr('status', 'equalto', 'FAIL') | list | length %}
+          - ✅ OK: {{ node_ok }} checks passed
+          - ⚠️  Warnings: {{ node_warn }} items need attention  
+          - ❌ Failures: {{ node_fail }} critical issues
+          
+      when: ansible_play_hosts | length > 1

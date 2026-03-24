@@ -1,0 +1,26 @@
+[DEFAULT]
+# Global settings
+bantime = 3600
+findtime = 600
+maxretry = 3
+backend = systemd
+
+# Email notifications (if configured)
+# destemail = admin@yourlab.local
+# sender = fail2ban@yourlab.local
+# mta = sendmail
+
+# Action to take when banning
+action = %(action_)s
+
+{% for jail in fail2ban_jails %}
+[{{ jail.name }}]
+enabled = {{ jail.enabled | lower }}
+port = {{ jail.port }}
+filter = {{ jail.filter }}
+logpath = {{ jail.logpath }}
+maxretry = {{ jail.maxretry }}
+bantime = {{ jail.bantime }}
+findtime = {{ jail.findtime }}
+
+{% endfor %}

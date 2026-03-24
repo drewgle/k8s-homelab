@@ -1,0 +1,449 @@
+---
+- name: Harden Proxmox VE Security Configuration
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../vars.yml
+  
+  vars:
+    # SSH hardening configuration
+    ssh_port: 22
+    ssh_max_auth_tries: 3
+    ssh_client_alive_interval: 300
+    ssh_client_alive_count_max: 2
+    ssh_login_grace_time: 30
+    
+    # Firewall ports for Proxmox cluster
+    proxmox_firewall_ports:
+      - { port: 22, protocol: tcp, comment: 'SSH' }
+      - { port: 8006, protocol: tcp, comment: 'Proxmox Web Interface' }
+      - { port: 3128, protocol: tcp, comment: 'Proxmox VE Proxy' }
+      - { port: 5900:5999, protocol: tcp, comment: 'VNC Console' }
+      - { port: 5404, protocol: udp, comment: 'Corosync (Multicast)' }
+      - { port: 5405, protocol: udp, comment: 'Corosync' }
+      - { port: 111, protocol: tcp, comment: 'RPC Portmapper' }
+      - { port: 111, protocol: udp, comment: 'RPC Portmapper' }
+    
+    # Ceph firewall ports (if using Ceph)
+    ceph_firewall_ports:
+      - { port: 3300, protocol: tcp, comment: 'Ceph Manager' }
+      - { port: 6789, protocol: tcp, comment: 'Ceph Monitor' }
+      - { port: 6800:7300, protocol: tcp, comment: 'Ceph OSD' }
+    
+    # Fail2ban jail configuration
+    fail2ban_jails:
+      - name: sshd
+        enabled: true
+        port: ssh
+        filter: sshd
+        logpath: /var/log/auth.log
+        maxretry: 3
+        bantime: 3600
+        findtime: 600
+      - name: proxmox-web
+        enabled: true
+        port: 8006
+        filter: proxmox-web
+        logpath: /var/log/daemon.log
+        maxretry: 3
+        bantime: 3600
+        findtime: 600
+
+  tasks:
+    #
+    # SSH Hardening
+    #
+    - name: SSH Hardening Configuration
+      block:
+        - name: Backup SSH configuration
+          copy:
+            src: /etc/ssh/sshd_config
+            dest: /etc/ssh/sshd_config.backup
+            remote_src: yes
+            backup: yes
+
+        - name: Configure SSH security settings
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "{{ item.regexp }}"
+            line: "{{ item.line }}"
+            backup: yes
+          loop:
+            - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+            - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+            - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
+            - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+            - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+            - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries {{ ssh_max_auth_tries }}' }
+            - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval {{ ssh_client_alive_interval }}' }
+            - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax {{ ssh_client_alive_count_max }}' }
+            - { regexp: '^#?LoginGraceTime', line: 'LoginGraceTime {{ ssh_login_grace_time }}' }
+            - { regexp: '^#?Protocol', line: 'Protocol 2' }
+            - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+            - { regexp: '^#?UseDNS', line: 'UseDNS no' }
+            - { regexp: '^#?AllowUsers', line: 'AllowUsers root' }
+          notify: restart ssh
+
+        - name: Disable weak SSH algorithms
+          blockinfile:
+            path: /etc/ssh/sshd_config
+            block: |
+              # Disable weak ciphers, MACs, and key exchanges
+              KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+              Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+              MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512
+            marker: "# {mark} ANSIBLE MANAGED SECURITY BLOCK"
+            backup: yes
+          notify: restart ssh
+
+    #
+    # Firewall Configuration
+    #
+    - name: Firewall Hardening
+      block:
+        - name: Install UFW firewall
+          apt:
+            name: ufw
+            state: present
+
+        - name: Reset UFW to defaults
+          ufw:
+            state: reset
+
+        - name: Set UFW default policies
+          ufw:
+            direction: "{{ item.direction }}"
+            policy: "{{ item.policy }}"
+          loop:
+            - { direction: incoming, policy: deny }
+            - { direction: outgoing, policy: allow }
+            - { direction: routed, policy: deny }
+
+        - name: Allow Proxmox cluster communication
+          ufw:
+            rule: allow
+            port: "{{ item.port }}"
+            proto: "{{ item.protocol }}"
+            comment: "{{ item.comment }}"
+          loop: "{{ proxmox_firewall_ports }}"
+
+        - name: Allow Ceph cluster communication
+          ufw:
+            rule: allow
+            port: "{{ item.port }}"
+            proto: "{{ item.protocol }}"
+            comment: "{{ item.comment }}"
+            src: "{{ ceph_public_network }}"
+          loop: "{{ ceph_firewall_ports }}"
+          when: ceph_public_network is defined
+
+        - name: Enable UFW firewall
+          ufw:
+            state: enabled
+          notify: restart ufw
+
+    #
+    # System Hardening
+    #
+    - name: System Security Hardening
+      block:
+        - name: Install security packages
+          apt:
+            name:
+              - fail2ban
+              - aide
+              - chkrootkit
+              - rkhunter
+              - auditd
+              - logwatch
+              - unattended-upgrades
+              - apt-config-auto-update
+            state: present
+
+        - name: Configure kernel security parameters
+          sysctl:
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+            state: present
+            reload: yes
+            sysctl_file: /etc/sysctl.d/99-security.conf
+          loop:
+            # Network security
+            - { name: 'net.ipv4.ip_forward', value: '1' }  # Needed for Proxmox
+            - { name: 'net.ipv4.conf.all.rp_filter', value: '1' }
+            - { name: 'net.ipv4.conf.default.rp_filter', value: '1' }
+            - { name: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }
+            - { name: 'net.ipv4.icmp_ignore_bogus_error_responses', value: '1' }
+            - { name: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+            - { name: 'net.ipv4.conf.default.accept_redirects', value: '0' }
+            - { name: 'net.ipv6.conf.all.accept_redirects', value: '0' }
+            - { name: 'net.ipv6.conf.default.accept_redirects', value: '0' }
+            - { name: 'net.ipv4.conf.all.accept_source_route', value: '0' }
+            - { name: 'net.ipv4.conf.default.accept_source_route', value: '0' }
+            - { name: 'net.ipv6.conf.all.accept_source_route', value: '0' }
+            - { name: 'net.ipv6.conf.default.accept_source_route', value: '0' }
+            - { name: 'net.ipv4.conf.all.log_martians', value: '1' }
+            - { name: 'net.ipv4.conf.default.log_martians', value: '1' }
+            - { name: 'net.ipv4.tcp_syncookies', value: '1' }
+            - { name: 'net.ipv4.tcp_rfc1337', value: '1' }
+            # Memory protection
+            - { name: 'kernel.randomize_va_space', value: '2' }
+            - { name: 'kernel.kptr_restrict', value: '2' }
+            - { name: 'kernel.dmesg_restrict', value: '1' }
+            - { name: 'kernel.perf_event_paranoid', value: '2' }
+            - { name: 'kernel.yama.ptrace_scope', value: '1' }
+            # File system security
+            - { name: 'fs.suid_dumpable', value: '0' }
+            - { name: 'fs.protected_hardlinks', value: '1' }
+            - { name: 'fs.protected_symlinks', value: '1' }
+            - { name: 'fs.protected_fifos', value: '2' }
+            - { name: 'fs.protected_regular', value: '2' }
+
+        - name: Disable uncommon network protocols
+          blockinfile:
+            path: /etc/modprobe.d/blacklist-rare-protocols.conf
+            create: yes
+            block: |
+              # Disable uncommon network protocols
+              install dccp /bin/true
+              install sctp /bin/true
+              install rds /bin/true 
+              install tipc /bin/true
+              install n-hdlc /bin/true
+              install ax25 /bin/true
+              install netrom /bin/true
+              install x25 /bin/true
+              install rose /bin/true
+              install decnet /bin/true
+              install econet /bin/true
+              install af_802154 /bin/true
+              install ipx /bin/true
+              install appletalk /bin/true
+              install psnap /bin/true
+
+    #
+    # Fail2Ban Configuration
+    #
+    - name: Configure Fail2Ban
+      block:
+        - name: Create custom Proxmox web filter
+          copy:
+            dest: /etc/fail2ban/filter.d/proxmox-web.conf
+            content: |
+              [Definition]
+              failregex = pvedaemon\[.*authentication failure.*rip=<HOST>
+                          pvedaemon\[.*authentication failure.*rhost=<HOST>
+                          pvedaemon\[.*permission denied.*rip=<HOST>
+            backup: yes
+
+        - name: Configure Fail2Ban jails
+          template:
+            src: jail.local.j2
+            dest: /etc/fail2ban/jail.local
+            backup: yes
+          notify: restart fail2ban
+
+        - name: Start and enable Fail2Ban
+          systemd:
+            name: fail2ban
+            state: started
+            enabled: yes
+
+    #
+    # Proxmox Specific Hardening
+    #
+    - name: Proxmox Security Configuration
+      block:
+        - name: Set secure permissions on Proxmox directories
+          file:
+            path: "{{ item }}"
+            mode: '0750'
+            owner: root
+            group: www-data
+          loop:
+            - /etc/pve
+            - /var/lib/vz
+          ignore_errors: yes
+
+        - name: Disable root bash history for security
+          lineinfile:
+            path: /root/.bashrc
+            line: 'unset HISTFILE'
+            create: yes
+
+        - name: Configure logrotate for Proxmox logs
+          copy:
+            dest: /etc/logrotate.d/proxmox-security
+            content: |
+              /var/log/pve-firewall.log {
+                weekly
+                missingok
+                rotate 12
+                compress
+                delaycompress
+                notifempty
+                copytruncate
+              }
+              
+              /var/log/pvedaemon.log {
+                weekly
+                missingok
+                rotate 12
+                compress
+                delaycompress
+                notifempty
+                copytruncate
+              }
+
+    #
+    # Audit and Monitoring
+    #
+    - name: Security Monitoring Setup
+      block:
+        - name: Configure auditd rules
+          copy:
+            dest: /etc/audit/rules.d/proxmox-security.rules
+            content: |
+              # Monitor Proxmox configuration changes
+              -w /etc/pve/ -p wa -k pve-config
+              -w /etc/ssh/sshd_config -p wa -k ssh-config
+              -w /etc/passwd -p wa -k passwd-changes
+              -w /etc/shadow -p wa -k shadow-changes
+              -w /etc/sudoers -p wa -k sudoers-changes
+              
+              # Monitor system calls
+              -a always,exit -S adjtimex,settimeofday,stime -k time-change
+              -a always,exit -S clock_settime -k time-change
+              -a always,exit -S unlink,unlinkat,rename,renameat -F auid>=1000 -F auid!=-1 -k delete
+              
+              # Monitor logins and logouts
+              -w /var/run/utmp -p wa -k session
+              -w /var/log/wtmp -p wa -k session
+              -w /var/log/btmp -p wa -k session
+              
+              # Make the configuration immutable
+              -e 2
+            backup: yes
+          notify: restart auditd
+
+        - name: Enable and start auditd
+          systemd:
+            name: auditd
+            state: started
+            enabled: yes
+
+        - name: Configure unattended-upgrades
+          copy:
+            dest: /etc/apt/apt.conf.d/20auto-upgrades
+            content: |
+              APT::Periodic::Update-Package-Lists "1";
+              APT::Periodic::Download-Upgradeable-Packages "1";
+              APT::Periodic::AutocleanInterval "7";
+              APT::Periodic::Unattended-Upgrade "1";
+            backup: yes
+
+        - name: Configure unattended-upgrades security updates
+          lineinfile:
+            path: /etc/apt/apt.conf.d/50unattended-upgrades
+            regexp: '^//.*"${distro_id}:${distro_codename}-security";'
+            line: '        "${distro_id}:${distro_codename}-security";'
+            backup: yes
+
+    #
+    # File System Hardening
+    #
+    - name: File System Security
+      block:
+        - name: Set proper permissions on critical files
+          file:
+            path: "{{ item.path }}"
+            mode: "{{ item.mode }}"
+            owner: "{{ item.owner | default('root') }}"
+            group: "{{ item.group | default('root') }}"
+          loop:
+            - { path: /etc/passwd, mode: '0644' }
+            - { path: /etc/shadow, mode: '0640', group: shadow }
+            - { path: /etc/gshadow, mode: '0640', group: shadow }
+            - { path: /etc/group, mode: '0644' }
+            - { path: /etc/ssh/sshd_config, mode: '0600' }
+            - { path: /var/log, mode: '0755' }
+
+        - name: Remove packages with known vulnerabilities
+          apt:
+            name:
+              - telnet
+              - rsh-client
+              - rsh-server
+              - nis
+              - ntpdate
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: Set sticky bit on world-writable directories
+          shell: |
+            find /tmp /var/tmp -type d -perm -002 ! -perm -1000 -exec chmod +t {} \;
+          changed_when: false
+
+    #
+    # Network Time Security
+    #
+    - name: Secure NTP Configuration
+      block:
+        - name: Install chrony for secure time sync
+          apt:
+            name: chrony
+            state: present
+
+        - name: Configure chrony with secure settings
+          copy:
+            dest: /etc/chrony/chrony.conf
+            content: |
+              # NTP servers
+              pool pool.ntp.org iburst
+              pool time.google.com iburst
+              
+              # Security settings
+              makestep 1.0 3
+              rtcsync
+              
+              # Allow only localhost
+              allow 127.0.0.1
+              deny all
+              
+              # Logging
+              log tracking measurements statistics
+              logdir /var/log/chrony
+            backup: yes
+          notify: restart chrony
+
+        - name: Enable and start chrony
+          systemd:
+            name: chrony
+            state: started
+            enabled: yes
+
+  handlers:
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted
+
+    - name: restart ufw
+      systemd:
+        name: ufw
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
+
+    - name: restart auditd
+      command: service auditd restart
+
+    - name: restart chrony
+      systemd:
+        name: chrony
+        state: restarted

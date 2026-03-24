@@ -4,6 +4,14 @@
 # GitHub username to fetch SSH keys from
 github_username: "your-github-username"
 
+# Proxmox cluster configuration
+proxmox_cluster_name: "homelab"              # Name for your Proxmox cluster
+# proxmox_cluster_network: "192.168.1.0/24"  # Optional: specific cluster network
+
+# Ceph cluster configuration
+ceph_public_network: "192.168.1.0/24"    # Network for client communications
+ceph_cluster_network: "10.0.1.0/24"      # Network for cluster communications (optional, can be same as public)
+
 # Additional configuration variables
 # Add any other environment-specific variables here as needed
 

@@ -1,0 +1,147 @@
+---
+- name: Add Node to Existing Ceph Cluster
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Ceph cluster configuration
+    cluster_network: "{{ ceph_cluster_network | default('10.0.1.0/24') }}"
+    public_network: "{{ ceph_public_network | default('192.168.1.0/24') }}"
+
+  tasks:
+    - name: Check cluster configuration on all nodes
+      stat:
+        path: /etc/ceph/ceph.conf
+      register: ceph_config_exists
+
+    - name: Set cluster status facts
+      set_fact:
+        cluster_exists: "{{ ceph_config_exists.stat.exists }}"
+
+    - name: Find existing cluster nodes
+      set_fact:
+        existing_nodes: "{{ groups['proxmox'] | select('in', hostvars.keys()) | select('extract', hostvars, 'cluster_exists') | select() | list }}"
+        new_nodes: "{{ groups['proxmox'] | select('in', hostvars.keys()) | reject('extract', hostvars, 'cluster_exists') | select() | list }}"
+      run_once: true
+
+    - name: Verify cluster exists
+      fail:
+        msg: "No existing Ceph cluster found. Use cluster-init.yml for initial setup."
+      when: existing_nodes | length == 0
+      run_once: true
+
+    - name: Display node addition plan
+      debug:
+        msg: |
+          Adding {{ new_nodes | length }} new node(s) to existing cluster:
+          - Existing nodes: {{ existing_nodes | join(', ') }}  
+          - New nodes: {{ new_nodes | join(', ') }}
+      run_once: true
+
+    - name: Get existing cluster UUID
+      command: ceph config get mon fsid
+      register: existing_cluster_uuid
+      run_once: true
+      delegate_to: "{{ existing_nodes[0] }}"
+      failed_when: false
+
+    - name: Set cluster UUID fact
+      set_fact:
+        ceph_cluster_uuid: "{{ existing_cluster_uuid.stdout }}"
+      when: existing_cluster_uuid.rc == 0
+
+    - name: Create Ceph configuration file on new nodes
+      template: 
+        src: ./templates/ceph.conf.j2
+        dest: /etc/ceph/ceph.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      when: inventory_hostname in new_nodes
+
+    - name: Fetch keyrings from existing cluster
+      fetch:
+        src: "{{ item }}"
+        dest: "/tmp/{{ item | basename }}"
+        flat: yes
+      loop:
+        - /etc/ceph/ceph.mon.keyring
+        - /etc/ceph/ceph.client.admin.keyring
+        - /var/lib/ceph/bootstrap-osd/ceph.keyring
+      run_once: true
+      delegate_to: "{{ existing_nodes[0] }}"
+
+    - name: Distribute keyrings to new nodes
+      copy:
+        src: "/tmp/{{ item | basename }}"
+        dest: "{{ item }}"
+        owner: ceph
+        group: ceph
+        mode: '0600'
+        backup: yes
+      loop:
+        - /etc/ceph/ceph.mon.keyring
+        - /etc/ceph/ceph.client.admin.keyring
+        - /var/lib/ceph/bootstrap-osd/ceph.keyring
+      when: inventory_hostname in new_nodes
+
+    - name: Get monitor map from existing cluster
+      command: ceph mon getmap -o /etc/ceph/monmap
+      run_once: true
+      delegate_to: "{{ existing_nodes[0] }}"
+
+    - name: Fetch monitor map from existing cluster
+      fetch:
+        src: /etc/ceph/monmap
+        dest: /tmp/monmap
+        flat: yes
+      run_once: true
+      delegate_to: "{{ existing_nodes[0] }}"
+
+    - name: Distribute monitor map to new nodes
+      copy:
+        src: /tmp/monmap
+        dest: /etc/ceph/monmap
+        owner: ceph
+        group: ceph
+        mode: '0644'
+      when: inventory_hostname in new_nodes
+
+    - name: Check cluster connectivity from new nodes
+      command: ceph health
+      register: cluster_health_check
+      when: inventory_hostname in new_nodes
+      failed_when: false
+
+    - name: Verify new nodes can connect to cluster
+      debug:
+        msg: "Node {{ inventory_hostname }} can connect to cluster: {{ cluster_health_check.stdout | default('FAILED') }}"
+      when: inventory_hostname in new_nodes
+
+    - name: Wait for cluster to stabilize
+      pause:
+        seconds: 15
+        prompt: "Allowing cluster to recognize new nodes..."
+      run_once: true
+      when: new_nodes | length > 0
+
+    - name: Display node addition completion
+      debug:
+        msg: |
+          🔧 Successfully added {{ new_nodes | length }} node(s) to Ceph cluster!
+          
+          Addition Summary:
+          - Cluster UUID: {{ ceph_cluster_uuid }}
+          - Total nodes now: {{ groups['proxmox'] | length }}
+          - New nodes: {{ new_nodes | join(', ') }}
+          
+          Next Steps:
+          1. Run ceph-osd-add.yml to add storage from new nodes
+          2. Monitor rebalancing: ceph -w
+          3. Verify cluster health: ceph health detail
+      run_once: true
+      when: new_nodes | length > 0
