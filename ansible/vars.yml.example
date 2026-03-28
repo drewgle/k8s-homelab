@@ -12,12 +12,41 @@ proxmox_cluster_name: "homelab"              # Name for your Proxmox cluster
 ceph_public_network: "192.168.1.0/24"    # Network for client communications
 ceph_cluster_network: "10.0.1.0/24"      # Network for cluster communications (optional, can be same as public)
 
-# Additional configuration variables
-# Add any other environment-specific variables here as needed
+# Talos Kubernetes cluster configuration
+talos_cluster_name: "homelab-k8s"                    # Name for your Talos Kubernetes cluster
+talos_cluster_endpoint: "https://192.168.100.201:6443"  # Control plane endpoint (should match VLAN network)
+talos_dns_domain: "cluster.local"                    # Kubernetes cluster DNS domain
+talos_cni: "flannel"                                 # Container Network Interface: flannel, cilium
+talos_install_disk: "/dev/sda"                       # Disk for Talos installation
 
-# Example additional variables you might want to add:
-# timezone: "America/New_York"
-# ntp_servers:
-#   - "pool.ntp.org"
-#   - "time.google.com"
-# domain_name: "homelab.local"
+# Talos network configuration
+talos_pod_subnet: "10.244.0.0/16"                    # Pod CIDR subnet
+talos_service_subnet: "10.96.0.0/12"                 # Service CIDR subnet
+# talos_network_interface: "eth0"                     # Optional: specific network interface
+
+
+# Talos VM provisioning on Proxmox
+talos_vlan_id: 100                                       # VLAN ID for Talos network isolation
+talos_bridge_name: "vmbr1"                               # Proxmox bridge for Talos VMs
+talos_gateway: "192.168.100.1"                           # Gateway IP for Talos VLAN
+talos_cidr_bits: "24"                                    # Network CIDR bits (e.g., /24)
+talos_storage: "local-lvm"                               # Proxmox storage for VM disks
+
+# Talos VM specifications
+talos_cp_cores: 4                                        # CPU cores for control plane VMs
+talos_cp_memory: 4096                                    # Memory (MB) for control plane VMs  
+talos_cp_disk_size: "50G"                                # Disk size for control plane VMs
+talos_worker_cores: 2                                    # CPU cores for worker VMs
+talos_worker_memory: 8192                                # Memory (MB) for worker VMs
+talos_worker_disk_size: "100G"                           # Disk size for worker VMs
+
+# DNS and NTP configuration
+dns_servers:
+  - "1.1.1.1"
+  - "8.8.8.8"
+ntp_servers:
+  - "pool.ntp.org"
+  - "time.google.com"
+  
+timezone: "America/New_York"
+domain_name: "homelab.local"

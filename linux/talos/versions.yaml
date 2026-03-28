@@ -1,0 +1,23 @@
+# Talos and Kubernetes version management
+# This file is monitored by Renovate for automatic updates
+
+# Talos Linux versions
+talos:
+  # Installer image used for initial OS installation and upgrades
+  installer: "v1.7.0"
+  # Talos system extensions (if needed in future)
+  extensions: {}
+
+# Kubernetes version - should be compatible with Talos version
+kubernetes:
+  version: "v1.29.3"
+
+# Container runtime versions (managed by Talos)
+containerd:
+  version: "1.7.13"
+
+# CNI versions (if using custom CNI)
+cni:
+  # Flannel is default for Talos, Cilium alternative
+  flannel: "v0.24.2"
+  cilium: "v1.15.1"

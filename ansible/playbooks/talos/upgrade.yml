@@ -1,0 +1,132 @@
+---
+- name: Upgrade Talos Cluster
+  hosts: localhost
+  become: no
+  gather_facts: no
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Load version information
+    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    talos_installer_version: "{{ versions.talos.installer }}"
+    kubernetes_version: "{{ versions.kubernetes.version }}"
+    
+    # Upgrade settings
+    preserve_data: "{{ preserve | default(true) }}"
+    staged_upgrade: "{{ staged | default(true) }}"
+
+  tasks:
+    - name: Pre-upgrade health check
+      include: health-check.yml
+
+    - name: Confirm upgrade
+      pause:
+        prompt: |
+          About to upgrade Talos cluster to version {{ talos_installer_version }}
+          Kubernetes version: {{ kubernetes_version }}
+          Preserve data: {{ preserve_data }}
+          Staged upgrade: {{ staged_upgrade }}
+          
+          Press ENTER to continue or Ctrl+C to abort
+      when: not (auto_approve | default(false))
+
+    - name: Upgrade control plane nodes sequentially
+      command: >
+        talosctl upgrade 
+        --nodes={{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --image=ghcr.io/siderolabs/installer:{{ talos_installer_version }}
+        {{ '--preserve' if preserve_data else '' }}
+        {{ '--stage' if staged_upgrade else '' }}
+        --wait=true
+      loop: "{{ groups['talos_controlplane'] }}"
+      register: upgrade_cp_results
+
+    - name: Wait between control plane upgrades
+      pause:
+        seconds: "{{ upgrade_wait_time | default(60) }}"
+      when: groups['talos_controlplane'] | length > 1
+
+    - name: Verify control plane health after upgrade
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        get nodes -l node-role.kubernetes.io/control-plane
+      register: cp_status
+      retries: 10
+      delay: 30
+      until: "'NotReady' not in cp_status.stdout"
+
+    - name: Upgrade worker nodes in batches
+      command: >
+        talosctl upgrade 
+        --nodes={{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --image=ghcr.io/siderolabs/installer:{{ talos_installer_version }}
+        {{ '--preserve' if preserve_data else '' }}
+        {{ '--stage' if staged_upgrade else '' }}
+        --wait=true
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+      register: upgrade_worker_results
+      throttle: "{{ worker_upgrade_batch_size | default(1) }}"
+
+    - name: Wait for all workers to be ready
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        wait --for=condition=Ready node {{ item }} --timeout=300s
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+      when: groups['talos_worker'] | default([]) | length > 0
+
+    - name: Update machine configurations with new versions
+      template:
+        src: "../../../linux/talos/templates/controlplane.yaml.j2"
+        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml"
+        mode: '0644'
+      loop: "{{ groups['talos_controlplane'] }}"
+      vars:
+        inventory_hostname: "{{ item }}"
+        ansible_default_ipv4: "{{ hostvars[item]['ansible_default_ipv4'] }}"
+
+    - name: Update worker machine configurations
+      template:
+        src: "../../../linux/talos/templates/worker.yaml.j2"
+        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml"
+        mode: '0644'
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+      vars:
+        inventory_hostname: "{{ item }}"
+        ansible_default_ipv4: "{{ hostvars[item]['ansible_default_ipv4'] }}"
+
+    - name: Apply updated machine configurations to control plane
+      command: >
+        talosctl apply-config 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml
+      loop: "{{ groups['talos_controlplane'] }}"
+
+    - name: Apply updated machine configurations to workers
+      command: >
+        talosctl apply-config 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+
+    - name: Post-upgrade health check
+      include: health-check.yml
+
+    - name: Verify cluster version
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        version --short
+      register: cluster_version
+
+    - name: Display upgrade results
+      debug:
+        msg: |
+          === Talos Cluster Upgrade Complete ===
+          Target Talos Version: {{ talos_installer_version }}
+          Target Kubernetes Version: {{ kubernetes_version }}
+          Current Cluster Version: {{ cluster_version.stdout }}
+          
+          Control Plane Upgrades: {{ upgrade_cp_results.results | length }} completed
+          Worker Upgrades: {{ upgrade_worker_results.results | default([]) | length }} completed
+          
+          ✅ Upgrade completed successfully!

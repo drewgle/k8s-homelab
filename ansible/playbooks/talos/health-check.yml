@@ -1,0 +1,146 @@
+---
+- name: Talos Cluster Health Check
+  hosts: localhost
+  become: no
+  gather_facts: no
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Load version information
+    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    talos_installer_version: "{{ versions.talos.installer }}"
+    kubernetes_version: "{{ versions.kubernetes.version }}"
+
+  tasks:
+    - name: Check if kubeconfig exists
+      stat:
+        path: "{{ playbook_dir }}/../../../linux/talos/generated/kubeconfig"
+      register: kubeconfig_file
+
+    - name: Fail if kubeconfig not found
+      fail:
+        msg: "Kubeconfig not found. Run cluster-create.yml first."
+      when: not kubeconfig_file.stat.exists
+
+    - name: Check Talos nodes connectivity
+      command: >
+        talosctl health 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+      loop: "{{ groups['talos_controlplane'] + groups['talos_worker'] | default([]) }}"
+      register: talos_health
+      failed_when: false
+
+    - name: Display Talos health results
+      debug:
+        msg: |
+          Node: {{ item.item }}
+          Status: {{ 'OK' if item.rc == 0 else 'FAIL' }}
+          Output: {{ item.stdout | default(item.stderr) }}
+      loop: "{{ talos_health.results }}"
+
+    - name: Check Kubernetes cluster status
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        cluster-info
+      register: cluster_info
+      failed_when: false
+
+    - name: Display cluster info
+      debug:
+        var: cluster_info.stdout_lines
+      when: cluster_info.rc == 0
+
+    - name: Check node status
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        get nodes -o wide
+      register: node_status
+      failed_when: false
+
+    - name: Display node status
+      debug:
+        var: node_status.stdout_lines
+      when: node_status.rc == 0
+
+    - name: Check system pods status
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        get pods -n kube-system
+      register: system_pods
+      failed_when: false
+
+    - name: Display system pods status
+      debug:
+        var: system_pods.stdout_lines
+      when: system_pods.rc == 0
+
+    - name: Check for unhealthy pods
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
+      register: unhealthy_pods
+      failed_when: false
+
+    - name: Display unhealthy pods
+      debug:
+        msg: |
+          Unhealthy pods found:
+          {{ unhealthy_pods.stdout }}
+      when: unhealthy_pods.rc == 0 and unhealthy_pods.stdout != ""
+
+    - name: Check etcd health (control plane nodes only)
+      command: >
+        talosctl etcd status 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+      loop: "{{ groups['talos_controlplane'] }}"
+      register: etcd_health
+      failed_when: false
+
+    - name: Display etcd health
+      debug:
+        msg: |
+          Node: {{ item.item }}
+          etcd Status: {{ 'OK' if item.rc == 0 else 'FAIL' }}
+          Output: {{ item.stdout | default(item.stderr) }}
+      loop: "{{ etcd_health.results }}"
+
+    - name: Check kubelet status on all nodes
+      command: >
+        talosctl service kubelet
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+      loop: "{{ groups['talos_controlplane'] + groups['talos_worker'] | default([]) }}"
+      register: kubelet_status
+      failed_when: false
+
+    - name: Display kubelet status
+      debug:
+        msg: |
+          Node: {{ item.item }}
+          Kubelet: {{ 'Running' if 'Running' in item.stdout else 'Not Running' }}
+      loop: "{{ kubelet_status.results }}"
+
+    - name: Overall health summary
+      set_fact:
+        talos_nodes_healthy: "{{ talos_health.results | selectattr('rc', 'equalto', 0) | list | length }}"
+        talos_nodes_total: "{{ talos_health.results | length }}"
+        cluster_api_healthy: "{{ cluster_info.rc == 0 }}"
+        all_nodes_ready: "{{ 'NotReady' not in node_status.stdout }}"
+
+    - name: Display health summary
+      debug:
+        msg: |
+          === Talos Cluster Health Summary ===
+          Talos Nodes: {{ talos_nodes_healthy }}/{{ talos_nodes_total }} healthy
+          Kubernetes API: {{ 'OK' if cluster_api_healthy else 'FAIL' }}
+          All Nodes Ready: {{ 'YES' if all_nodes_ready else 'NO' }}
+          Unhealthy Pods: {{ 'NONE' if unhealthy_pods.stdout == '' else 'FOUND' }}
+
+    - name: Health check result
+      debug:
+        msg: |
+          {% if talos_nodes_healthy == talos_nodes_total and cluster_api_healthy and all_nodes_ready %}
+          ✅ Cluster is healthy!
+          {% else %}
+          ❌ Cluster has issues - check the details above
+          {% endif %}

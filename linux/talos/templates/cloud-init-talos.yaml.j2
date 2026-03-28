@@ -1,0 +1,43 @@
+#cloud-config
+# Cloud-init configuration for Talos Linux VMs
+# This configures basic network settings before Talos takes over
+
+# Set hostname
+hostname: {{ node_hostname }}
+
+# Network configuration for static IP
+write_files:
+  - path: /etc/systemd/network/10-static.network
+    permissions: '0644'
+    content: |
+      [Match]
+      Name=eth0
+      
+      [Network]
+      Address={{ node_ip }}/{{ talos_cidr_bits | default('24') }}
+      Gateway={{ node_gateway }}
+      DNS={{ dns_servers[0] | default('1.1.1.1') }}
+      DNS={{ dns_servers[1] | default('8.8.8.8') }}
+      
+      [Route]
+      Destination=0.0.0.0/0
+      Gateway={{ node_gateway }}
+
+# Enable systemd-networkd
+runcmd:
+  - systemctl enable systemd-networkd
+  - systemctl start systemd-networkd
+  - systemctl disable dhcpcd || true
+  - systemctl stop dhcpcd || true
+
+# Talos-specific optimizations
+bootcmd:
+  - echo 'net.core.somaxconn = 65535' >> /etc/sysctl.conf
+  - echo 'net.core.netdev_max_backlog = 4096' >> /etc/sysctl.conf
+  - sysctl -p
+
+# Disable unneeded services to prepare for Talos
+power_state:
+  delay: "+1"
+  mode: reboot
+  message: "Rebooting to apply network configuration"

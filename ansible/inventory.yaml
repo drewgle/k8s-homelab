@@ -3,15 +3,44 @@ all:
   children:
     proxmox:
       hosts:
-        pve1:
+        pve1: # M710q i5-7500T with 16GB RAM
           ansible_host: 192.168.1.101
           ansible_user: root
-        pve2:
+        pve2: # M710q i5-7500T with 16GB RAM
           ansible_host: 192.168.1.102
           ansible_user: root
-        pve3:
+        pve3: # M710q i3-7300T with 16GB RAM
           ansible_host: 192.168.1.103
           ansible_user: root
       vars:
         ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
         ansible_python_interpreter: /usr/bin/python3
+    
+    # Talos Kubernetes cluster nodes
+    talos_controlplane:
+      hosts:
+        talos-cp-01:
+          ansible_host: 192.168.100.201
+          vm_id: 201
+        talos-cp-02:
+          ansible_host: 192.168.100.202
+          vm_id: 202
+        talos-cp-03:
+          ansible_host: 192.168.100.203
+          vm_id: 203
+      vars:
+        ansible_connection: local  # Talos managed via talosctl, not SSH
+        
+    talos_worker:
+      hosts:
+        talos-worker-01:
+          ansible_host: 192.168.100.211
+          vm_id: 211
+        talos-worker-02:
+          ansible_host: 192.168.100.212
+          vm_id: 212
+        talos-worker-03:
+          ansible_host: 192.168.100.213
+          vm_id: 213
+      vars:
+        ansible_connection: local  # Talos managed via talosctl, not SSH

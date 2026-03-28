@@ -9,6 +9,57 @@
     "{{depName}}",
     "{{updateType}}"
   ],
+  "regexManagers": [
+    {
+      "fileMatch": [
+        "^linux/talos/versions\\.yaml$"
+      ],
+      "matchStrings": [
+        "installer:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos",
+      "versioningTemplate": "semver"
+    },
+    {
+      "fileMatch": [
+        "^linux/talos/templates/.*\\.yaml\\.j2$"
+      ],
+      "matchStrings": [
+        "ghcr\\.io/siderolabs/installer:(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos",
+      "versioningTemplate": "semver"
+    },
+    {
+      "fileMatch": [
+        "^linux/talos/versions\\.yaml$"
+      ],
+      "matchStrings": [
+        "version:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""
+      ],
+      "datasourceTemplate": "github-releases", 
+      "depNameTemplate": "kubernetes/kubernetes",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["siderolabs/talos"],
+      "groupName": "talos",
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["kubernetes/kubernetes"], 
+      "groupName": "kubernetes",
+      "automerge": false,
+      "minimumReleaseAge": "7 days"
+    }
+  ],
   "docker-compose": {
     "hostRules": [
       {

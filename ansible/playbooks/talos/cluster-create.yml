@@ -1,0 +1,153 @@
+---
+- name: Create Talos Kubernetes Cluster
+  hosts: talos_controlplane[0]
+  become: no
+  gather_facts: yes
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # Load version information
+    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    talos_installer_version: "{{ versions.talos.installer }}"
+    kubernetes_version: "{{ versions.kubernetes.version }}"
+
+  tasks:
+    - name: Check minimum node requirements
+      assert:
+        that: 
+          - groups['talos_controlplane'] | length >= 1
+          - groups['talos_worker'] | default([]) | length >= 0
+          - (groups['talos_controlplane'] | length + groups['talos_worker'] | default([]) | length) >= 1
+        fail_msg: "Talos cluster requires at least 1 control plane node"
+        success_msg: "Sufficient nodes available for Talos cluster ({{ groups['talos_controlplane'] | length }} control plane, {{ groups['talos_worker'] | default([]) | length }} workers)"
+      run_once: true
+
+    - name: Install talosctl on control machine
+      get_url:
+        url: "https://github.com/siderolabs/talos/releases/download/{{ talos_installer_version }}/talosctl-linux-amd64"
+        dest: /usr/local/bin/talosctl
+        mode: '0755'
+        owner: root
+        group: root
+      delegate_to: localhost
+      become: yes
+      run_once: true
+
+    - name: Check if cluster secrets already exist
+      stat:
+        path: "{{ playbook_dir }}/../../../linux/talos/secrets.yaml"
+      register: secrets_file
+      delegate_to: localhost
+
+    - name: Generate cluster secrets if not exists
+      command: talosctl gen secrets
+      register: talos_gen_secrets
+      delegate_to: localhost
+      when: not secrets_file.stat.exists
+      run_once: true
+
+    - name: Save generated secrets
+      copy:
+        content: "{{ talos_gen_secrets.stdout }}"
+        dest: "{{ playbook_dir }}/../../../linux/talos/secrets.yaml"
+        mode: '0600'
+      delegate_to: localhost
+      when: not secrets_file.stat.exists
+      run_once: true
+
+    - name: Load cluster secrets
+      include_vars:
+        file: "{{ playbook_dir }}/../../../linux/talos/secrets.yaml"
+      run_once: true
+
+    - name: Generate control plane machine configurations
+      template:
+        src: "../../../linux/talos/templates/controlplane.yaml.j2"
+        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ inventory_hostname }}-controlplane.yaml"
+        mode: '0644'
+      delegate_to: localhost
+      loop: "{{ groups['talos_controlplane'] }}"
+      loop_control:
+        loop_var: target_host
+      vars:
+        inventory_hostname: "{{ target_host }}"
+        ansible_default_ipv4: "{{ hostvars[target_host]['ansible_default_ipv4'] }}"
+
+    - name: Generate worker machine configurations
+      template:
+        src: "../../../linux/talos/templates/worker.yaml.j2"
+        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ inventory_hostname }}-worker.yaml"
+        mode: '0644'
+      delegate_to: localhost
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+      loop_control:
+        loop_var: target_host
+      vars:
+        inventory_hostname: "{{ target_host }}"
+        ansible_default_ipv4: "{{ hostvars[target_host]['ansible_default_ipv4'] }}"
+
+    - name: Wait for Talos nodes to be online
+      wait_for:
+        host: "{{ hostvars[item]['ansible_default_ipv4']['address'] }}"
+        port: 50000  # Talos API port
+        timeout: 300
+      loop: "{{ groups['talos_controlplane'] + groups['talos_worker'] | default([]) }}"
+      delegate_to: localhost
+
+    - name: Apply machine configurations to control plane nodes
+      command: >
+        talosctl apply-config 
+        --insecure 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml
+      loop: "{{ groups['talos_controlplane'] }}"
+      delegate_to: localhost
+      register: apply_config_cp
+
+    - name: Apply machine configurations to worker nodes
+      command: >
+        talosctl apply-config 
+        --insecure 
+        --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
+        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+      delegate_to: localhost
+      register: apply_config_workers
+
+    - name: Wait for control plane to be ready
+      pause:
+        seconds: 60
+      when: apply_config_cp.changed
+
+    - name: Bootstrap Kubernetes on first control plane node
+      command: >
+        talosctl bootstrap 
+        --nodes {{ hostvars[groups['talos_controlplane'][0]]['ansible_default_ipv4']['address'] }}
+      delegate_to: localhost
+      run_once: true
+
+    - name: Wait for Kubernetes API to be ready
+      command: >
+        talosctl kubeconfig 
+        --nodes {{ hostvars[groups['talos_controlplane'][0]]['ansible_default_ipv4']['address'] }}
+        {{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+      delegate_to: localhost
+      run_once: true
+      retries: 10
+      delay: 30
+      register: kubeconfig_result
+      until: kubeconfig_result.rc == 0
+
+    - name: Verify cluster health
+      command: >
+        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        get nodes
+      delegate_to: localhost
+      run_once: true
+      register: cluster_nodes
+
+    - name: Display cluster status
+      debug:
+        var: cluster_nodes.stdout_lines
+      run_once: true

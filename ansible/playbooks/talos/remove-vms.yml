@@ -1,0 +1,90 @@
+---
+- name: Remove Talos VMs from Proxmox
+  hosts: proxmox[0]
+  become: yes
+  gather_facts: no
+  vars_files:
+    - ../../../vars.yml
+
+  vars:
+    # VMs to remove (can be specified via extra vars)
+    vms_to_remove: "{{ remove_vms | default([]) }}"
+    force_remove: "{{ force | default(false) }}"
+
+  tasks:
+    - name: Validate VMs to remove
+      assert:
+        that:
+          - vms_to_remove | length > 0
+        fail_msg: "No VMs specified. Use -e remove_vms='[\"talos-cp-01\",\"talos-worker-01\"]'"
+        success_msg: "Removing {{ vms_to_remove | length }} VM(s)"
+
+    - name: Confirm VM removal
+      pause:
+        prompt: |
+          ⚠️  WARNING: This will permanently destroy the following VMs and their data:
+          {{ vms_to_remove | join(', ') }}
+          
+          This action cannot be undone!
+          
+          Press ENTER to continue or Ctrl+C to abort
+      when: not force_remove
+
+    - name: Stop VMs before removal
+      shell: |
+        if qm status {{ hostvars[item]['vm_id'] }} 2>/dev/null | grep -q "running"; then
+          echo "Stopping VM {{ item }}"
+          qm stop {{ hostvars[item]['vm_id'] }}
+          sleep 5
+        else
+          echo "VM {{ item }} already stopped or doesn't exist"
+        fi
+      loop: "{{ vms_to_remove }}"
+      register: vm_stop_results
+      failed_when: false
+
+    - name: Remove VMs and their disks
+      shell: |
+        if qm list | grep -q "{{ hostvars[item]['vm_id'] }}"; then
+          echo "Destroying VM {{ item }} (ID: {{ hostvars[item]['vm_id'] }})"
+          qm destroy {{ hostvars[item]['vm_id'] }} --destroy-unreferenced-disks 1
+          echo "VM {{ item }} destroyed"
+        else
+          echo "VM {{ item }} does not exist"
+        fi
+      loop: "{{ vms_to_remove }}"
+      register: vm_removal_results
+
+    - name: Display removal results
+      debug:
+        msg: |
+          VM {{ item.item }}: {{ 'DESTROYED' if 'destroyed' in item.stdout else 'NOT FOUND' }}
+          Details: {{ item.stdout }}
+      loop: "{{ vm_removal_results.results }}"
+
+    - name: Clean up generated configurations
+      file:
+        path: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-{{ 'controlplane' if item in groups['talos_controlplane'] else 'worker' }}.yaml"
+        state: absent
+      loop: "{{ vms_to_remove }}"
+      delegate_to: localhost
+
+    - name: Summary
+      debug:
+        msg: |
+          === Talos VM Removal Complete ===
+          
+          VMs Processed: {{ vms_to_remove | length }}
+          
+          Removed VMs:
+          {% for item in vm_removal_results.results %}
+          - {{ item.item }}: {{ 'SUCCESS' if 'destroyed' in item.stdout else 'ALREADY GONE' }}
+          {% endfor %}
+          
+          Cleanup Actions:
+          - VMs stopped and destroyed
+          - VM disks removed  
+          - Generated configuration files cleaned up
+          
+          ✅ VM removal completed!
+      run_once: true
