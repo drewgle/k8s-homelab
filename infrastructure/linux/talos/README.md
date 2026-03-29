@@ -5,7 +5,7 @@ This directory contains Talos Linux machine configurations and templates for the
 ## Directory Structure
 
 ```
-linux/talos/
+infrastructure/linux/talos/
 ├── versions.yaml              # Version management for Renovate
 ├── generated/                 # Generated machine configs (gitignored)
 ├── templates/
@@ -59,7 +59,7 @@ The `generated/` directory contains:
 
 ## Usage
 
-Machine configurations are generated and applied via Ansible playbooks in [ansible/playbooks/talos/](../../ansible/playbooks/talos/).
+Machine configurations are generated and applied via Ansible playbooks in [../ansible/playbooks/talos/](../ansible/playbooks/talos/).
 
 1. **Generate configs**: Templates are rendered with inventory variables
 2. **Apply configs**: Machine configs are applied to Talos nodes via `talosctl`
@@ -68,7 +68,7 @@ Machine configurations are generated and applied via Ansible playbooks in [ansib
 
 ## Integration
 
-- **Ansible**: Playbooks in `ansible/playbooks/talos/` manage the cluster lifecycle
+- **Ansible**: Playbooks in `../ansible/playbooks/talos/` manage the cluster lifecycle
 - **Renovate**: Automatically updates versions in `versions.yaml`
 - **Proxmox**: VMs are provisioned on Proxmox infrastructure
 - **GitOps**: All configuration managed through Git commits
@@ -82,6 +82,6 @@ Machine configurations are generated and applied via Ansible playbooks in [ansib
 
 ## Related Documentation
 
-- [Talos Ansible Playbooks](../../ansible/playbooks/talos/README.md)
+- [Talos Ansible Playbooks](../ansible/playbooks/talos/README.md)
 - [Talos Official Documentation](https://www.talos.dev/docs/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/)

@@ -8,7 +8,7 @@
 
   vars:
     # Load version information
-    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    versions: "{{ lookup('file', '../../linux/talos/versions.yaml') | from_yaml }}"
     talos_installer_version: "{{ versions.talos.installer }}"
     kubernetes_version: "{{ versions.kubernetes.version }}"
     
@@ -25,7 +25,7 @@
 
     - name: Check if cluster secrets exist
       stat:
-        path: "{{ playbook_dir }}/../../../linux/talos/secrets.yaml"
+        path: "{{ playbook_dir }}/../../linux/talos/secrets.yaml"
       register: secrets_file
 
     - name: Fail if secrets not found
@@ -35,7 +35,7 @@
 
     - name: Load cluster secrets
       include_vars:
-        file: "{{ playbook_dir }}/../../../linux/talos/secrets.yaml"
+        file: "{{ playbook_dir }}/../../linux/talos/secrets.yaml"
 
     - name: Determine node types
       set_fact:
@@ -44,8 +44,8 @@
 
     - name: Generate machine configurations for new control plane nodes
       template:
-        src: "../../../linux/talos/templates/controlplane.yaml.j2"
-        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml"
+        src: "../../linux/talos/templates/controlplane.yaml.j2"
+        dest: "{{ playbook_dir }}/../../linux/talos/generated/{{ item }}-controlplane.yaml"
         mode: '0644'
       loop: "{{ new_control_plane }}"
       vars:
@@ -54,8 +54,8 @@
 
     - name: Generate machine configurations for new worker nodes
       template:
-        src: "../../../linux/talos/templates/worker.yaml.j2" 
-        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml"
+        src: "../../linux/talos/templates/worker.yaml.j2" 
+        dest: "{{ playbook_dir }}/../../linux/talos/generated/{{ item }}-worker.yaml"
         mode: '0644'
       loop: "{{ new_workers }}"
       vars:
@@ -74,7 +74,7 @@
         talosctl apply-config 
         --insecure 
         --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
-        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml
+        --file {{ playbook_dir }}/../../linux/talos/generated/{{ item }}-controlplane.yaml
       loop: "{{ new_control_plane }}"
       register: apply_config_new_cp
 
@@ -83,7 +83,7 @@
         talosctl apply-config 
         --insecure 
         --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
-        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml
+        --file {{ playbook_dir }}/../../linux/talos/generated/{{ item }}-worker.yaml
       loop: "{{ new_workers }}"
       register: apply_config_new_workers
 
@@ -94,7 +94,7 @@
 
     - name: Verify new nodes in cluster
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get nodes
       register: cluster_nodes
 
@@ -104,7 +104,7 @@
 
     - name: Verify all new nodes are Ready
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get nodes {{ item }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
       loop: "{{ nodes_to_add }}"
       register: node_status

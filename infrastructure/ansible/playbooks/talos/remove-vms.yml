@@ -64,7 +64,7 @@
 
     - name: Clean up generated configurations
       file:
-        path: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-{{ 'controlplane' if item in groups['talos_controlplane'] else 'worker' }}.yaml"
+        path: "{{ playbook_dir }}/../../linux/talos/generated/{{ item }}-{{ 'controlplane' if item in groups['talos_controlplane'] else 'worker' }}.yaml"
         state: absent
       loop: "{{ vms_to_remove }}"
       delegate_to: localhost

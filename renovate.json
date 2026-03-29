@@ -12,7 +12,7 @@
   "regexManagers": [
     {
       "fileMatch": [
-        "^linux/talos/versions\\.yaml$"
+        "^infrastructure/linux/talos/versions\.yaml$"
       ],
       "matchStrings": [
         "installer:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""
@@ -23,7 +23,7 @@
     },
     {
       "fileMatch": [
-        "^linux/talos/templates/.*\\.yaml\\.j2$"
+        "^infrastructure/linux/talos/templates/.*\.yaml\.j2$"
       ],
       "matchStrings": [
         "ghcr\\.io/siderolabs/installer:(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"
@@ -34,7 +34,7 @@
     },
     {
       "fileMatch": [
-        "^linux/talos/versions\\.yaml$"
+        "^infrastructure/linux/talos/versions\\.yaml$"
       ],
       "matchStrings": [
         "version:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""

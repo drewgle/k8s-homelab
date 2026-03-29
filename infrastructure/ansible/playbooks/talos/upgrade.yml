@@ -8,7 +8,7 @@
 
   vars:
     # Load version information
-    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    versions: "{{ lookup('file', '../../linux/talos/versions.yaml') | from_yaml }}"
     talos_installer_version: "{{ versions.talos.installer }}"
     kubernetes_version: "{{ versions.kubernetes.version }}"
     
@@ -49,7 +49,7 @@
 
     - name: Verify control plane health after upgrade
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get nodes -l node-role.kubernetes.io/control-plane
       register: cp_status
       retries: 10
@@ -70,15 +70,15 @@
 
     - name: Wait for all workers to be ready
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         wait --for=condition=Ready node {{ item }} --timeout=300s
       loop: "{{ groups['talos_worker'] | default([]) }}"
       when: groups['talos_worker'] | default([]) | length > 0
 
     - name: Update machine configurations with new versions
       template:
-        src: "../../../linux/talos/templates/controlplane.yaml.j2"
-        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml"
+        src: "../../linux/talos/templates/controlplane.yaml.j2"
+        dest: "{{ playbook_dir }}/../../linux/talos/generated/{{ item }}-controlplane.yaml"
         mode: '0644'
       loop: "{{ groups['talos_controlplane'] }}"
       vars:
@@ -87,8 +87,8 @@
 
     - name: Update worker machine configurations
       template:
-        src: "../../../linux/talos/templates/worker.yaml.j2"
-        dest: "{{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml"
+        src: "../../linux/talos/templates/worker.yaml.j2"
+        dest: "{{ playbook_dir }}/../../linux/talos/generated/{{ item }}-worker.yaml"
         mode: '0644'
       loop: "{{ groups['talos_worker'] | default([]) }}"
       vars:
@@ -99,14 +99,14 @@
       command: >
         talosctl apply-config 
         --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
-        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-controlplane.yaml
+        --file {{ playbook_dir }}/../../linux/talos/generated/{{ item }}-controlplane.yaml
       loop: "{{ groups['talos_controlplane'] }}"
 
     - name: Apply updated machine configurations to workers
       command: >
         talosctl apply-config 
         --nodes {{ hostvars[item]['ansible_default_ipv4']['address'] }}
-        --file {{ playbook_dir }}/../../../linux/talos/generated/{{ item }}-worker.yaml
+        --file {{ playbook_dir }}/../../linux/talos/generated/{{ item }}-worker.yaml
       loop: "{{ groups['talos_worker'] | default([]) }}"
 
     - name: Post-upgrade health check
@@ -114,7 +114,7 @@
 
     - name: Verify cluster version
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         version --short
       register: cluster_version
 

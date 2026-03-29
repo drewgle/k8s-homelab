@@ -8,14 +8,14 @@
 
   vars:
     # Load version information
-    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    versions: "{{ lookup('file', '../../linux/talos/versions.yaml') | from_yaml }}"
     talos_installer_version: "{{ versions.talos.installer }}"
     kubernetes_version: "{{ versions.kubernetes.version }}"
 
   tasks:
     - name: Check if kubeconfig exists
       stat:
-        path: "{{ playbook_dir }}/../../../linux/talos/generated/kubeconfig"
+        path: "{{ playbook_dir }}/../../linux/talos/generated/kubeconfig"
       register: kubeconfig_file
 
     - name: Fail if kubeconfig not found
@@ -41,7 +41,7 @@
 
     - name: Check Kubernetes cluster status
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         cluster-info
       register: cluster_info
       failed_when: false
@@ -53,7 +53,7 @@
 
     - name: Check node status
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get nodes -o wide
       register: node_status
       failed_when: false
@@ -65,7 +65,7 @@
 
     - name: Check system pods status
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get pods -n kube-system
       register: system_pods
       failed_when: false
@@ -77,7 +77,7 @@
 
     - name: Check for unhealthy pods
       command: >
-        kubectl --kubeconfig={{ playbook_dir }}/../../../linux/talos/generated/kubeconfig
+        kubectl --kubeconfig={{ playbook_dir }}/../../linux/talos/generated/kubeconfig
         get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
       register: unhealthy_pods
       failed_when: false

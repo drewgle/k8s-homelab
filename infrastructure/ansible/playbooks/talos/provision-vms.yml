@@ -8,7 +8,7 @@
 
   vars:
     # Load version information
-    versions: "{{ lookup('file', '../../../linux/talos/versions.yaml') | from_yaml }}"
+    versions: "{{ lookup('file', '../../linux/talos/versions.yaml') | from_yaml }}"
     talos_installer_version: "{{ versions.talos.installer }}"
     
     # VM specifications
@@ -65,7 +65,7 @@
 
     - name: Generate cloud-init user data for Talos nodes
       template:
-        src: "../../../linux/talos/templates/cloud-init-talos.yaml.j2"
+        src: "../../linux/talos/templates/cloud-init-talos.yaml.j2"
         dest: "/tmp/talos-cloud-init-{{ item }}.yaml"
         mode: '0644'
       loop: "{{ groups['talos_controlplane'] + groups['talos_worker'] | default([]) }}"

@@ -177,14 +177,14 @@ ntp_servers:
 
 ## File Locations
 
-- **Machine configs**: `linux/talos/generated/`
-- **Kubeconfig**: `linux/talos/generated/kubeconfig`
-- **Cluster secrets**: `linux/talos/secrets.yaml` (DO NOT commit to git)
-- **Version management**: `linux/talos/versions.yaml`
+- **Machine configs**: `../../linux/talos/generated/`
+- **Kubeconfig**: `../../linux/talos/generated/kubeconfig`
+- **Cluster secrets**: `../../linux/talos/secrets.yaml` (DO NOT commit to git)
+- **Version management**: `../../linux/talos/versions.yaml`
 
 ## GitOps Integration
 
-Versions are managed through Renovate in `linux/talos/versions.yaml`:
+Versions are managed through Renovate in `../../linux/talos/versions.yaml`:
 
 ```yaml
 talos:

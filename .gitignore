@@ -3,10 +3,10 @@
 # DO NOT commit to version control
 
 # Cluster secrets (contains certificates and tokens)
-linux/talos/secrets.yaml
+infrastructure/linux/talos/secrets.yaml
 
 # Generated machine configurations (may contain sensitive data)  
-linux/talos/generated/
+infrastructure/linux/talos/generated/
 
 # Downloaded kubeconfig (provides full cluster access)
-linux/talos/kubeconfig
+infrastructure/linux/talos/kubeconfig
