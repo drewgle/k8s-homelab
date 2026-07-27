@@ -3,7 +3,7 @@
   hosts: proxmox
   become: yes
   gather_facts: yes
-  
+
   tasks:
     - name: Check Proxmox services status
       service_facts:

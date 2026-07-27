@@ -37,7 +37,7 @@ This document explains the network setup for Talos Linux VMs on Proxmox infrastr
 ## VLAN Configuration
 
 ### Network Isolation
-- **VLAN ID**: 100 (configurable via `talos_vlan_id`)
+- **VLAN ID**: 100 (configurable via `vm_vlan_id`)
 - **Subnet**: 192.168.100.0/24 (isolated from management network)
 - **Purpose**: Dedicated network for Kubernetes cluster traffic
 
@@ -79,7 +79,7 @@ This document explains the network setup for Talos Linux VMs on Proxmox infrastr
 - **Bridge Ports**: None (software bridge)
 
 ### Bridge Creation
-The `provision-vms.yml` playbook automatically creates vmbr1 if it doesn't exist:
+The `01-provision-vms.yml` playbook automatically creates vmbr1 if it doesn't exist:
 
 ```bash
 # Manual bridge creation (if needed)
@@ -119,9 +119,10 @@ To use different IP ranges, update these variables:
 
 ```yaml
 # vars.yml
-talos_vlan_id: 200                    # Different VLAN
-talos_gateway: "10.100.0.1"           # Different gateway
-talos_cidr_bits: "24"                 # Network mask
+vm_vlan_id: 200                       # Different VLAN
+vm_gateway: "10.100.0.1"              # Different gateway
+vm_subnet: "10.100.0.0/24"            # VM network CIDR
+vm_cidr_bits: "24"                    # Network mask
 
 # inventory.yaml  
 talos-cp-01:

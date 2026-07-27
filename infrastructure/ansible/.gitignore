@@ -1,6 +1,9 @@
 # Environment-specific configuration
 vars.yml
 
+# Fetched kubeconfigs and other generated output
+generated/
+
 # Ansible runtime files
 *.retry
 .ansible/

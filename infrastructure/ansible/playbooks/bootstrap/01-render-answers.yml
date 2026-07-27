@@ -1,0 +1,96 @@
+---
+- name: Render Proxmox auto-install answer files for autopve
+  hosts: localhost
+  become: no
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars_prompt:
+    - name: pve_root_password
+      prompt: Root password to set on freshly installed Proxmox nodes
+      private: yes
+      confirm: yes
+
+  vars:
+    proxmox_dir: "{{ playbook_dir }}/../../../linux/proxmox"
+    answers_dir: "{{ proxmox_dir }}/generated/answers"
+    answer_template: "{{ proxmox_dir }}/templates/answer.toml.j2"
+    github_ssh_keys_url: "https://github.com/{{ github_username }}.keys"
+
+  tasks:
+    - name: Fetch SSH public keys from GitHub
+      uri:
+        url: "{{ github_ssh_keys_url }}"
+        return_content: yes
+      register: github_keys
+
+    - name: Build SSH key list and password hash
+      set_fact:
+        github_ssh_key_list: "{{ github_keys.content.splitlines() | select('match', '^(ssh-rsa|ssh-ed25519|ecdsa-)') | list }}"
+        pve_root_password_hash: "{{ pve_root_password | password_hash('sha512') }}"
+      no_log: true
+
+    - name: Verify at least one SSH key was found
+      assert:
+        that: github_ssh_key_list | length > 0
+        fail_msg: "No SSH keys found at {{ github_ssh_keys_url }} - check github_username in vars.yml"
+        success_msg: "Found {{ github_ssh_key_list | length }} SSH key(s) for root"
+
+    - name: Ensure answers directory exists
+      file:
+        path: "{{ answers_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Render shared answer for autopve's Default answer
+      template:
+        src: "{{ answer_template }}"
+        dest: "{{ answers_dir }}/default.toml"
+        mode: '0600'
+      vars:
+        render_mode: default
+
+    - name: Render per-node override answers for autopve
+      template:
+        src: "{{ answer_template }}"
+        dest: "{{ answers_dir }}/{{ item }}.toml"
+        mode: '0600'
+      vars:
+        render_mode: node
+        node_fqdn: "{{ item }}.{{ domain_name }}"
+        node_cidr: "{{ hostvars[item]['ansible_host'] }}/{{ mgmt_cidr_bits | default('24') }}"
+      loop: "{{ groups['proxmox'] }}"
+
+    - name: Render complete per-node answers for validation
+      template:
+        src: "{{ answer_template }}"
+        dest: "{{ answers_dir }}/{{ item }}-full.toml"
+        mode: '0600'
+      vars:
+        render_mode: full
+        node_fqdn: "{{ item }}.{{ domain_name }}"
+        node_cidr: "{{ hostvars[item]['ansible_host'] }}/{{ mgmt_cidr_bits | default('24') }}"
+      loop: "{{ groups['proxmox'] }}"
+
+    - name: Build proxmox-auto-install-assistant container image
+      command: docker build -t pve-autoinstall-assistant {{ proxmox_dir }}/autoinstall
+      changed_when: false
+
+    - name: Validate complete answers with proxmox-auto-install-assistant
+      command: >
+        docker run --rm
+        -v {{ answers_dir }}:/answers:ro
+        pve-autoinstall-assistant
+        proxmox-auto-install-assistant validate-answer /answers/{{ item }}-full.toml
+      loop: "{{ groups['proxmox'] }}"
+      changed_when: false
+
+    - name: Show next steps
+      debug:
+        msg:
+          - "Answer files rendered and validated in {{ answers_dir }}"
+          - "Next steps (see infrastructure/linux/proxmox/README.md):"
+          - "  1. Paste default.toml into autopve's Default answer at {{ autoinstall_url | regex_replace('/answer$', '') }}"
+          - "  2. Create one autopve answer per node from <node>.toml with a MAC/serial match rule"
+          - "  3. Run playbooks/bootstrap/02-build-iso.yml to build the USB image"

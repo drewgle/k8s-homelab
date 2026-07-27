@@ -1,12 +1,13 @@
-# Generated Talos configurations and secrets
+# Generated cluster configurations and secrets
 # These files contain sensitive cluster keys and generated machine configs
 # DO NOT commit to version control
 
 # Cluster secrets (contains certificates and tokens)
 infrastructure/linux/talos/secrets.yaml
 
-# Generated machine configurations (may contain sensitive data)  
-infrastructure/linux/talos/generated/
+# Generated machine configurations and talosconfig (contain sensitive data)
+infrastructure/linux/*/generated/
 
-# Downloaded kubeconfig (provides full cluster access)
-infrastructure/linux/talos/kubeconfig
+# Downloaded kubeconfigs (provide full cluster access)
+infrastructure/linux/*/kubeconfig
+infrastructure/ansible/generated/

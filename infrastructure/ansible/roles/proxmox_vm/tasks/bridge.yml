@@ -1,0 +1,18 @@
+---
+- name: Configure VLAN-aware VM bridge in /etc/network/interfaces
+  blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED - {{ vm_bridge_name }} VM bridge"
+    block: |
+      auto {{ vm_bridge_name }}
+      iface {{ vm_bridge_name }} inet manual
+              bridge-ports none
+              bridge-stp off
+              bridge-fd 0
+              bridge-vlan-aware yes
+              bridge-vids 2-4094
+  register: bridge_config
+
+- name: Apply network configuration
+  command: ifreload -a
+  when: bridge_config.changed

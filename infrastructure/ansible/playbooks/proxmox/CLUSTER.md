@@ -35,13 +35,13 @@ Proxmox clustering enables:
 
 ```bash
 # 1. Run initial setup first
-ansible-playbook playbooks/proxmox/initial-setup.yml
+ansible-playbook playbooks/proxmox/01-initial-setup.yml
 
 # 2. Reboot if kernel updates were installed  
-ansible-playbook playbooks/proxmox/reboot.yml
+ansible-playbook playbooks/proxmox/02-reboot.yml
 
 # 3. Create the cluster
-ansible-playbook playbooks/proxmox/cluster-create.yml
+ansible-playbook playbooks/proxmox/03-cluster-create.yml
 ```
 
 ### Adding Nodes to Existing Cluster
@@ -49,7 +49,7 @@ ansible-playbook playbooks/proxmox/cluster-create.yml
 ```bash
 # 1. Add new hosts to inventory.yaml
 # 2. Setup new nodes
-ansible-playbook playbooks/proxmox/initial-setup.yml --limit new-node1,new-node2
+ansible-playbook playbooks/proxmox/01-initial-setup.yml --limit new-node1,new-node2
 
 # 3. Join them to the cluster
 ansible-playbook playbooks/proxmox/cluster-add-node.yml
@@ -57,7 +57,7 @@ ansible-playbook playbooks/proxmox/cluster-add-node.yml
 
 ## What the Playbooks Do
 
-### `cluster-create.yml`
+### `03-cluster-create.yml`
 
 - Validates network connectivity between all nodes
 - Creates cluster on first node using `pvecm create`  

@@ -115,17 +115,17 @@ storage:
             bindPort: 6443
             certSANs:
 {% for host in groups['flatcar_controlplane'] %}
-              - {{ hostvars[host]['ansible_default_ipv4']['address'] }}
-              - {{ hostvars[host]['inventory_hostname'] }}
+              - {{ hostvars[host]['ansible_host'] }}
+              - {{ host }}
 {% endfor %}
-              - {{ kubernetes_cluster_endpoint | regex_replace('https?://') | regex_replace(':.*') }}
+              - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
           controllerManager: {}
           scheduler: {}
           ---
           apiVersion: kubeadm.k8s.io/v1beta3
           kind: InitConfiguration
           localAPIEndpoint:
-            advertiseAddress: {{ ansible_default_ipv4.address }}
+            advertiseAddress: {{ node_ip }}
             bindPort: 6443
           nodeRegistration:
             kubeletExtraArgs:
@@ -152,7 +152,7 @@ systemd:
           --kubeconfig=/etc/kubernetes/kubelet.conf \
           --container-runtime-endpoint=unix:///run/containerd/containerd.sock \
           --pod-infra-container-image=registry.k8s.io/pause:3.9 \
-          --node-ip={{ ansible_default_ipv4.address }} \
+          --node-ip={{ node_ip }} \
           --v=2
         Restart=always
         StartLimitInterval=0

@@ -1,20 +1,22 @@
 # Talos machine configuration for control plane nodes
-# This template is processed by Ansible using variables from vars.yml
+# Rendered by Ansible with vars.yml plus secrets loaded from secrets.yaml
+# (the output of `talosctl gen secrets`, loaded as `talos_secrets`).
+# Per-node values are passed in as `node_hostname` and `node_ip`.
 
 version: v1alpha1
 debug: false
 persist: true
 machine:
   type: controlplane
-  token: {{ talos_machine_token }}
+  token: {{ talos_secrets.trustdinfo.token }}
   ca:
-    crt: {{ talos_ca_crt | b64encode }}
-    key: {{ talos_ca_key | b64encode }}
+    crt: {{ talos_secrets.certs.os.crt }}
+    key: {{ talos_secrets.certs.os.key }}
   certSANs:
-    - {{ talos_cluster_endpoint | regex_replace('https?://') | regex_replace(':.*') }}
+    - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
 {% for host in groups['talos_controlplane'] %}
-    - {{ hostvars[host]['ansible_default_ipv4']['address'] }}
-    - {{ hostvars[host]['inventory_hostname'] }}
+    - {{ hostvars[host]['ansible_host'] }}
+    - {{ host }}
 {% endfor %}
   kubelet:
     image: ghcr.io/siderolabs/kubelet:{{ kubernetes_version }}
@@ -37,19 +39,19 @@ machine:
   files: []
   env: {}
   network:
-    hostname: {{ inventory_hostname }}
+    hostname: {{ node_hostname }}
     nameservers:
 {% for ns in dns_servers | default(['1.1.1.1', '8.8.8.8']) %}
       - {{ ns }}
 {% endfor %}
-{% if talos_network_interface is defined %}
+{% if kubernetes_network_interface is defined %}
     interfaces:
-      - interface: {{ talos_network_interface }}
+      - interface: {{ kubernetes_network_interface }}
         addresses:
-          - {{ ansible_default_ipv4.address }}/{{ ansible_default_ipv4.prefix }}
+          - {{ node_ip }}/{{ vm_cidr_bits | default('24') }}
         routes:
           - network: 0.0.0.0/0
-            gateway: {{ ansible_default_ipv4.gateway }}
+            gateway: {{ vm_gateway }}
 {% endif %}
   nodeLabels:
     node.kubernetes.io/exclude-from-external-load-balancers: ""
@@ -62,8 +64,8 @@ machine:
       enabled: true
       port: 7445
 cluster:
-  id: {{ talos_cluster_id }}
-  secret: {{ talos_cluster_secret }}
+  id: {{ talos_secrets.cluster.id }}
+  secret: {{ talos_secrets.cluster.secret }}
   controlPlane:
     endpoint: {{ kubernetes_cluster_endpoint }}
   clusterName: {{ kubernetes_cluster_name | default('homelab-k8s') }}
@@ -75,22 +77,22 @@ cluster:
       - {{ kubernetes_service_subnet | default('10.96.0.0/12') }}
     cni:
       name: {{ kubernetes_cni | default('flannel') }}
-  token: {{ talos_bootstrap_token }}
-  secretboxEncryptionSecret: {{ talos_secretbox_key }}
+  token: {{ talos_secrets.secrets.bootstraptoken }}
+  secretboxEncryptionSecret: {{ talos_secrets.secrets.secretboxencryptionsecret }}
   ca:
-    crt: {{ talos_cluster_ca_crt | b64encode }}
-    key: {{ talos_cluster_ca_key | b64encode }}
+    crt: {{ talos_secrets.certs.k8s.crt }}
+    key: {{ talos_secrets.certs.k8s.key }}
   aggregatorCA:
-    crt: {{ talos_aggregator_ca_crt | b64encode }}
-    key: {{ talos_aggregator_ca_key | b64encode }}
+    crt: {{ talos_secrets.certs.k8saggregator.crt }}
+    key: {{ talos_secrets.certs.k8saggregator.key }}
   serviceAccount:
-    key: {{ talos_service_account_key | b64encode }}
+    key: {{ talos_secrets.certs.k8sserviceaccount.key }}
   apiServer:
     image: registry.k8s.io/kube-apiserver:{{ kubernetes_version }}
     certSANs:
-      - {{ talos_cluster_endpoint | regex_replace('https?://') | regex_replace(':.*') }}
+      - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
 {% for host in groups['talos_controlplane'] %}
-      - {{ hostvars[host]['ansible_default_ipv4']['address'] }}
+      - {{ hostvars[host]['ansible_host'] }}
 {% endfor %}
     disablePodSecurityPolicy: true
     admissionControl: []
@@ -111,9 +113,9 @@ cluster:
         disabled: true
   etcd:
     ca:
-      crt: {{ talos_etcd_ca_crt | b64encode }}
-      key: {{ talos_etcd_ca_key | b64encode }}
+      crt: {{ talos_secrets.certs.etcd.crt }}
+      key: {{ talos_secrets.certs.etcd.key }}
     advertisedSubnets:
 {% for host in groups['talos_controlplane'] %}
-      - {{ hostvars[host]['ansible_default_ipv4']['address'] }}/32
+      - {{ hostvars[host]['ansible_host'] }}/32
 {% endfor %}

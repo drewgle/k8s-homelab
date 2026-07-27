@@ -9,38 +9,27 @@
     "{{depName}}",
     "{{updateType}}"
   ],
-  "regexManagers": [
+  "customManagers": [
     {
+      "customType": "regex",
       "fileMatch": [
-        "^infrastructure/linux/talos/versions\.yaml$"
+        "^infrastructure/linux/.+/versions\\.yaml$"
       ],
       "matchStrings": [
-        "installer:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""
+        "# renovate: datasource=(?<datasource>[a-z-.]+) depName=(?<depName>[^\\s]+)( versioning=(?<versioning>[^\\s]+))?\\s+[A-Za-z0-9_]+: \"(?<currentValue>[^\"]+)\""
       ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "siderolabs/talos",
-      "versioningTemplate": "semver"
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver-coerced{{/if}}"
     },
     {
+      "customType": "regex",
       "fileMatch": [
-        "^infrastructure/linux/talos/templates/.*\.yaml\.j2$"
+        "^infrastructure/linux/talos/templates/.*\\.yaml\\.j2$"
       ],
       "matchStrings": [
         "ghcr\\.io/siderolabs/installer:(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"
       ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "siderolabs/talos",
-      "versioningTemplate": "semver"
-    },
-    {
-      "fileMatch": [
-        "^infrastructure/linux/talos/versions\\.yaml$"
-      ],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\""
-      ],
-      "datasourceTemplate": "github-releases", 
-      "depNameTemplate": "kubernetes/kubernetes",
       "versioningTemplate": "semver"
     }
   ],
@@ -54,78 +43,22 @@
     },
     {
       "matchDatasources": ["github-releases"],
-      "matchDepNames": ["kubernetes/kubernetes"], 
+      "matchDepNames": ["kubernetes/kubernetes"],
       "groupName": "kubernetes",
       "automerge": false,
       "minimumReleaseAge": "7 days"
+    },
+    {
+      "matchUpdateTypes": ["patch"],
+      "addLabels": ["patch"]
+    },
+    {
+      "matchUpdateTypes": ["minor"],
+      "addLabels": ["minor"]
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["major"]
     }
-  ],
-  "docker-compose": {
-    "hostRules": [
-      {
-        "matchHost": "docker.io",
-        "hostType": "docker",
-        "concurrentRequestLimit": 2
-      }
-    ],
-    "packageRules": [
-      {
-        "matchUpdateTypes": [
-          "digest",
-          "pinDigest",
-          "lockFileMaintenance"
-        ],
-        "automerge": true
-      },
-      {
-        "matchDatasources": [
-          "docker"
-        ],
-        "pinDigests": true
-      },
-      {
-        "matchPackageNames": "immich-app**",
-        "groupName": "immich"
-      },
-      {
-        "matchPackageNames": [
-          "tensorchord/pgvecto-rs"
-        ],
-        "enabled": false
-      },
-      {
-        "matchPackageNames": [
-          "ghcr.io/hotio/**"
-        ],
-        "versionCompatibility": "^(?<compatibility>release-)(?<version>.+)$"
-      },
-      {
-        "matchUpdateTypes": [
-          "patch"
-        ],
-        "addLabels": [
-          "patch"
-        ],
-        "automerge": true,
-      },
-      {
-        "matchUpdateTypes": [
-          "minor"
-        ],
-        "addLabels": [
-          "minor"
-        ],
-        "automerge": false
-      },
-      {
-        "matchUpdateTypes": [
-          "major"
-        ],
-        "addLabels": [
-          "major"
-        ],
-        "automerge": false
-      }
-    ]
-  }
+  ]
 }

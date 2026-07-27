@@ -4,8 +4,8 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../vars.yml
-  
+    - "{{ playbook_dir }}/../../vars.yml"
+
   vars:
     # SSH hardening configuration
     ssh_port: 22
@@ -13,7 +13,7 @@
     ssh_client_alive_interval: 300
     ssh_client_alive_count_max: 2
     ssh_login_grace_time: 30
-    
+
     # Firewall ports for Proxmox cluster
     proxmox_firewall_ports:
       - { port: 22, protocol: tcp, comment: 'SSH' }
@@ -24,13 +24,13 @@
       - { port: 5405, protocol: udp, comment: 'Corosync' }
       - { port: 111, protocol: tcp, comment: 'RPC Portmapper' }
       - { port: 111, protocol: udp, comment: 'RPC Portmapper' }
-    
+
     # Ceph firewall ports (if using Ceph)
     ceph_firewall_ports:
       - { port: 3300, protocol: tcp, comment: 'Ceph Manager' }
       - { port: 6789, protocol: tcp, comment: 'Ceph Monitor' }
       - { port: 6800:7300, protocol: tcp, comment: 'Ceph OSD' }
-    
+
     # Fail2ban jail configuration
     fail2ban_jails:
       - name: sshd
@@ -143,6 +143,15 @@
             state: enabled
           notify: restart ufw
 
+        - name: Keep the Proxmox firewall disabled (UFW is the managed firewall)
+          copy:
+            content: |
+              [OPTIONS]
+
+              enable: 0
+            dest: /etc/pve/firewall/cluster.fw
+          run_once: true
+
     #
     # System Hardening
     #
@@ -208,7 +217,7 @@
               # Disable uncommon network protocols
               install dccp /bin/true
               install sctp /bin/true
-              install rds /bin/true 
+              install rds /bin/true
               install tipc /bin/true
               install n-hdlc /bin/true
               install ax25 /bin/true
@@ -239,7 +248,7 @@
 
         - name: Configure Fail2Ban jails
           template:
-            src: jail.local.j2
+            src: "{{ playbook_dir }}/../../templates/jail.local.j2"
             dest: /etc/fail2ban/jail.local
             backup: yes
           notify: restart fail2ban
@@ -285,7 +294,7 @@
                 notifempty
                 copytruncate
               }
-              
+
               /var/log/pvedaemon.log {
                 weekly
                 missingok
@@ -311,17 +320,17 @@
               -w /etc/passwd -p wa -k passwd-changes
               -w /etc/shadow -p wa -k shadow-changes
               -w /etc/sudoers -p wa -k sudoers-changes
-              
+
               # Monitor system calls
               -a always,exit -S adjtimex,settimeofday,stime -k time-change
               -a always,exit -S clock_settime -k time-change
               -a always,exit -S unlink,unlinkat,rename,renameat -F auid>=1000 -F auid!=-1 -k delete
-              
+
               # Monitor logins and logouts
               -w /var/run/utmp -p wa -k session
               -w /var/log/wtmp -p wa -k session
               -w /var/log/btmp -p wa -k session
-              
+
               # Make the configuration immutable
               -e 2
             backup: yes
@@ -400,18 +409,19 @@
           copy:
             dest: /etc/chrony/chrony.conf
             content: |
-              # NTP servers
-              pool pool.ntp.org iburst
-              pool time.google.com iburst
-              
+              # NTP servers (ntp_servers in vars.yml)
+              {% for server in ntp_servers | default(['pool.ntp.org', 'time.google.com']) %}
+              pool {{ server }} iburst
+              {% endfor %}
+
               # Security settings
               makestep 1.0 3
               rtcsync
-              
+
               # Allow only localhost
               allow 127.0.0.1
               deny all
-              
+
               # Logging
               log tracking measurements statistics
               logdir /var/log/chrony

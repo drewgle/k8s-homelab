@@ -29,6 +29,7 @@ kubernetes_cluster_dns: "10.96.0.10"                          # Cluster DNS serv
 vm_vlan_id: 100                                               # VLAN ID for VM network isolation
 vm_bridge_name: "vmbr1"                                       # Proxmox bridge for VMs
 vm_gateway: "192.168.100.1"                                   # Gateway IP for VM VLAN
+vm_subnet: "192.168.100.0/24"                                 # VM network CIDR (kubelet node IP subnet)
 vm_cidr_bits: "24"                                           # Network CIDR bits (e.g., /24)
 vm_storage: "local-lvm"                                       # Proxmox storage for VM disks
 
@@ -44,6 +45,15 @@ vm_worker_disk_size: "100G"                                  # Disk size for wor
 # Flatcar update configuration
 flatcar_update_strategy: "reboot"                            # Update strategy: reboot, etcd-lock, off
 flatcar_update_group: "stable"                               # Update group: stable, beta, alpha
+
+# Proxmox bare-metal auto-install (see infrastructure/linux/proxmox/README.md)
+mgmt_gateway: "192.168.1.1"                                   # Gateway for the management network
+mgmt_cidr_bits: "24"                                          # CIDR bits for node management IPs
+root_mailto: "you@example.com"                                # Root mail target in the installer answer
+pve_country: "us"                                             # Installer locale settings
+pve_keyboard: "en-us"
+autoinstall_url: "https://proxmox-answers.internal.bluespeed.info/answer"  # autopve answer endpoint
+# autoinstall_cert_fingerprint: ""                            # Only if the autopve TLS cert is not publicly trusted
 
 # DNS and NTP configuration
 dns_servers:

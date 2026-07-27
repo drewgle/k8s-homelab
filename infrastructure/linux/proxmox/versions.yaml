@@ -1,0 +1,8 @@
+# Proxmox VE ISO version management
+# No Renovate datasource tracks Proxmox ISO releases, so bump these manually:
+# check https://www.proxmox.com/en/downloads for the latest ISO and update
+# iso_version and iso_sha256 together. Hashes are published at
+# https://download.proxmox.com/iso/SHA256SUMS
+proxmox:
+  iso_version: "9.2-1"
+  iso_sha256: "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c"

@@ -1,0 +1,5 @@
+---
+vm_bridge_name: vmbr1
+vm_vlan_id: 100
+vm_storage: local-lvm
+vm_cidr_bits: "24"

@@ -1,0 +1,103 @@
+---
+- name: Add OSDs to Ceph Cluster
+  hosts: proxmox
+  become: yes
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../../vars.yml"
+
+  tasks:
+    - name: Verify Ceph cluster exists
+      stat:
+        path: /etc/pve/ceph.conf
+      register: ceph_config_check
+
+    - name: Fail if no Ceph cluster configuration found
+      fail:
+        msg: "No Ceph cluster configuration found. Run 02-cluster-init.yml or add-node.yml first."
+      when: not ceph_config_check.stat.exists
+      run_once: true
+
+    - name: Check cluster health before adding OSDs
+      command: ceph health
+      register: cluster_connectivity
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Detect candidate disks for OSDs (whole disks, unmounted, not sda)
+      shell: |
+        set -o pipefail
+        lsblk -dno NAME,TYPE,MOUNTPOINT | awk '$2 == "disk" && $3 == "" && $1 != "sda" {print "/dev/" $1}'
+      register: candidate_disks
+      changed_when: false
+
+    - name: List disks already used by Ceph
+      command: ceph-volume lvm list --format json
+      register: ceph_volume_list
+      changed_when: false
+      failed_when: false
+
+    - name: Determine new disks to configure
+      set_fact:
+        new_disks: "{{ candidate_disks.stdout_lines | difference(ceph_used_disks) }}"
+      vars:
+        ceph_used_disks: >-
+          {{ (ceph_volume_list.stdout | default('{}', true) | from_json)
+             | dict2items
+             | map(attribute='value') | flatten
+             | map(attribute='devices') | flatten
+             | list }}
+
+    - name: Display new disks to be configured
+      debug:
+        msg: "New disks to configure as OSDs on {{ inventory_hostname }}: {{ new_disks if new_disks | length > 0 else ['none'] }}"
+
+    - name: Create OSDs on new disks
+      command: pveceph osd create {{ item }}
+      loop: "{{ new_disks }}"
+      register: osd_creation
+
+    - name: Wait for new OSDs to join the cluster
+      pause:
+        seconds: 30
+        prompt: "Waiting for new OSDs to be activated and join the cluster..."
+      run_once: true
+      when: ansible_play_hosts | map('extract', hostvars, 'new_disks') | select('defined') | flatten | length > 0
+
+    - name: Check OSD status after creation
+      command: ceph osd tree
+      register: osd_tree_status
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Display current OSD layout
+      debug:
+        msg: |
+          Current OSD Tree:
+          {{ osd_tree_status.stdout_lines | join('\n          ') }}
+      run_once: true
+
+    - name: Check cluster storage status
+      command: ceph df
+      register: cluster_storage_status
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ groups['proxmox'][0] }}"
+
+    - name: Display storage utilization
+      debug:
+        msg: |
+          Cluster Storage Status:
+          {{ cluster_storage_status.stdout_lines | join('\n          ') }}
+      run_once: true
+
+    - name: Display OSD addition summary
+      debug:
+        msg: |
+          OSDs added on {{ inventory_hostname }}: {{ new_disks | join(', ') if new_disks | length > 0 else 'none (no unused disks found)' }}
+
+          Next steps when OSDs were added:
+          1. Monitor rebalancing: ceph -w
+          2. Check cluster health: ceph health detail

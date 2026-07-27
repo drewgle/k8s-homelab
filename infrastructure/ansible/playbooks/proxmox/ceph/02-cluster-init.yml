@@ -1,0 +1,90 @@
+---
+- name: Initialize Ceph Cluster (3+ nodes)
+  hosts: proxmox
+  become: yes
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../../vars.yml"
+
+  vars:
+    cluster_network: "{{ ceph_cluster_network | default('10.0.1.0/24') }}"
+    public_network: "{{ ceph_public_network | default('192.168.1.0/24') }}"
+    mon_hosts: "{{ groups['proxmox'][:3] }}"
+    ceph_pool_name: "{{ ceph_pool | default('rbd') }}"
+
+  tasks:
+    - name: Check if Ceph cluster already exists
+      stat:
+        path: /etc/pve/ceph.conf
+      register: ceph_config_exists
+
+    - name: Verify this is initial setup
+      fail:
+        msg: "A Ceph cluster is already initialized. Use ceph-expand.yml or add-node.yml for existing clusters."
+      when: ceph_config_exists.stat.exists
+      run_once: true
+
+    - name: Initialize Ceph configuration
+      command: >
+        pveceph init
+        --network {{ public_network }}
+        --cluster-network {{ cluster_network }}
+      run_once: true
+
+    - name: Create monitors on the first three nodes (sequentially)
+      command: pveceph mon create
+      when: inventory_hostname in mon_hosts
+      throttle: 1
+      register: mon_create
+      failed_when: mon_create.rc != 0 and 'already exists' not in (mon_create.stderr | default(''))
+
+    - name: Create managers on the monitor nodes (sequentially)
+      command: pveceph mgr create
+      when: inventory_hostname in mon_hosts
+      throttle: 1
+      register: mgr_create
+      failed_when: mgr_create.rc != 0 and 'already exists' not in (mgr_create.stderr | default(''))
+
+    - name: Wait for monitor quorum
+      command: ceph quorum_status --format json
+      register: quorum_status
+      until: >-
+        quorum_status.rc == 0 and
+        (quorum_status.stdout | from_json).quorum | length == mon_hosts | length
+      retries: 15
+      delay: 10
+      changed_when: false
+      run_once: true
+
+    - name: Create RBD pool and register it as Proxmox storage
+      command: >
+        pveceph pool create {{ ceph_pool_name }}
+        --size 3
+        --min_size 2
+        --pg_autoscale_mode on
+        --add_storages
+      register: pool_create
+      failed_when: pool_create.rc != 0 and 'already exists' not in (pool_create.stderr | default(''))
+      run_once: true
+
+    - name: Get cluster status
+      command: ceph -s
+      register: ceph_status
+      changed_when: false
+      run_once: true
+
+    - name: Display cluster initialization summary
+      debug:
+        msg: |
+          === Ceph Cluster Initialized ===
+
+          Monitors/Managers: {{ mon_hosts | join(', ') }}
+          Public network: {{ public_network }}
+          Cluster network: {{ cluster_network }}
+          Pool: {{ ceph_pool_name }} (size 3, min_size 2, autoscaled PGs)
+          Proxmox storage entry: {{ ceph_pool_name }} (registered via --add_storages)
+
+          {{ ceph_status.stdout }}
+
+          Next: run 03-osd-add.yml to add storage disks.
+      run_once: true

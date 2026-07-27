@@ -1,0 +1,41 @@
+{#
+  Proxmox VE automated-installation answer file.
+  Rendered by infrastructure/ansible/playbooks/bootstrap/01-render-answers.yml
+  in three modes:
+    render_mode=default  shared settings, pasted into autopve's "Default" answer
+    render_mode=node     per-node overrides (fqdn + network), pasted into that
+                         node's autopve answer; autopve inherits the rest
+    render_mode=full     complete merged answer, used only for validate-answer
+  Reference: https://pve.proxmox.com/wiki/Automated_Installation
+#}
+[global]
+{% if render_mode in ['full', 'node'] %}
+fqdn = "{{ node_fqdn }}"
+{% endif %}
+{% if render_mode in ['full', 'default'] %}
+keyboard = "{{ pve_keyboard | default('en-us') }}"
+country = "{{ pve_country | default('us') }}"
+timezone = "{{ timezone }}"
+mailto = "{{ root_mailto }}"
+root-password-hashed = "{{ pve_root_password_hash }}"
+root-ssh-keys = [
+{% for key in github_ssh_key_list %}
+    "{{ key }}",
+{% endfor %}
+]
+reboot-on-error = false
+{% endif %}
+{% if render_mode in ['full', 'node'] %}
+
+[network]
+source = "from-answer"
+cidr = "{{ node_cidr }}"
+gateway = "{{ mgmt_gateway }}"
+dns = "{{ dns_servers[0] }}"
+{% endif %}
+{% if render_mode in ['full', 'default'] %}
+
+[disk-setup]
+filesystem = "ext4"
+disk-list = ["sda"]
+{% endif %}

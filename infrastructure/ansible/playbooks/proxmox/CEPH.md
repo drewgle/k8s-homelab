@@ -8,15 +8,15 @@ The Ceph setup is now split into modular playbooks for better maintainability:
 
 ### Master Playbooks
 
-- **`ceph-deploy.yml`** - Complete initial cluster deployment
+- **`04-ceph-deploy.yml`** - Complete initial cluster deployment
 - **`ceph-expand.yml`** - Add nodes/storage to existing cluster
 
 ### Individual Component Playbooks (`ceph/` folder)
 
-- **`common.yml`** - Common setup tasks (packages, user, directories)
-- **`cluster-init.yml`** - Initialize new cluster (monitors, managers, pools)
+- **`01-common.yml`** - Common setup tasks (packages, user, directories)
+- **`02-cluster-init.yml`** - Initialize new cluster (monitors, managers, pools)
 - **`add-node.yml`** - Add nodes to existing cluster
-- **`osd-add.yml`** - Add storage disks as OSDs
+- **`03-osd-add.yml`** - Add storage disks as OSDs
 - **`status.yml`** - Comprehensive health checks and monitoring
 
 ## Prerequisites
@@ -75,13 +75,13 @@ ip addr add 10.0.1.x/24 dev eth1  # where x = node number
 Ensure your Proxmox nodes are configured:
 
 ```bash
-ansible-playbook -k playbooks/proxmox/initial-setup.yml
+ansible-playbook -k playbooks/proxmox/01-initial-setup.yml
 ```
 
 ### 2. Deploy Ceph Cluster (Initial Setup)
 
 ```bash
-ansible-playbook playbooks/proxmox/ceph-deploy.yml
+ansible-playbook playbooks/proxmox/04-ceph-deploy.yml
 ```
 
 The deployment runs these phases automatically:
@@ -110,7 +110,7 @@ To add more nodes to an existing Ceph cluster:
 2. **Run initial Proxmox setup on new nodes**:
 
    ```bash
-   ansible-playbook playbooks/proxmox/initial-setup.yml --limit pve4,pve5
+   ansible-playbook playbooks/proxmox/01-initial-setup.yml --limit pve4,pve5
    ```
 
 3. **Add nodes to Ceph cluster**:
@@ -121,13 +121,16 @@ To add more nodes to an existing Ceph cluster:
 
 **What happens during expansion:**
 
-- ✅ Detects existing cluster and preserves configuration
-- ✅ Copies existing keyrings and configuration to new nodes
-- ✅ Installs Ceph packages on new nodes only
+- ✅ Installs Ceph packages on new nodes only (`pveceph install`)
+- ✅ Configuration and keyrings arrive automatically via the Proxmox
+  cluster filesystem (`/etc/pve`) — nothing is copied by hand
+- ✅ Tops monitors/managers back up to 3 if the cluster is below that
 - ✅ Automatically detects and adds new OSDs from available disks
-- ✅ Does NOT create additional monitor nodes (keeps original 3)
 - ✅ Does NOT recreate pools or cluster settings
 - ✅ Shows rebalancing progress and final cluster status
+
+**Prerequisite:** new nodes must already be Proxmox cluster members
+(`cluster-add-node.yml`) — pveceph operates through the cluster filesystem.
 
 ### Individual Component Operations
 
@@ -135,13 +138,13 @@ For advanced operations, you can run individual playbooks:
 
 ```bash
 # Add OSDs to existing nodes only
-ansible-playbook playbooks/proxmox/ceph/osd-add.yml
+ansible-playbook playbooks/proxmox/ceph/03-osd-add.yml
 
 # Comprehensive status check
 ansible-playbook playbooks/proxmox/ceph/status.yml
 
 # Setup common components only (packages, directories)
-ansible-playbook playbooks/proxmox/ceph/common.yml
+ansible-playbook playbooks/proxmox/ceph/01-common.yml
 ```
 
 ### 3. Verify Installation
@@ -171,44 +174,25 @@ ansible-playbook playbooks/proxmox/verify-ceph.yml --limit node1,node2
 
 ## What the Playbook Does
 
-1. **Installs Ceph packages** on all nodes
-2. **Creates cluster configuration** with proper networking
-3. **Sets up monitors** (first 3 nodes become monitor nodes)
-4. **Initializes authentication** keyrings
-5. **Creates manager services** for cluster management
-6. **Detects and prepares storage disks** as OSDs
-7. **Creates default RBD pools** for block storage
-8. **Enables the dashboard** for web-based management
+Everything runs through `pveceph`, Proxmox's supported Ceph tooling, so the
+result is fully visible and manageable in the PVE web UI's Ceph panel:
+
+1. **Installs Ceph** on all nodes (`pveceph install --repository no-subscription`)
+2. **Initializes the cluster config** with proper networking (`pveceph init`;
+   config and keyrings live in `/etc/pve` and replicate to every node)
+3. **Creates monitors and managers** on the first 3 nodes (`pveceph mon/mgr create`)
+4. **Detects and creates OSDs** from unused disks (`pveceph osd create`)
+5. **Creates the default RBD pool** (size 3, min_size 2, autoscaled PGs) and
+   **registers it as Proxmox storage** automatically (`--add_storages`)
 
 ## Post-Installation
 
-### Integrate with Proxmox
+### Proxmox Integration
 
-After Ceph is running, add it as storage in Proxmox:
-
-1. Access Proxmox web interface
-2. Go to **Datacenter** → **Storage**
-3. **Add** → **RBD**
-4. Configure:
-   - **ID**: `ceph-rbd`
-   - **Pool**: `rbd`
-   - **Monitor Host**: IP addresses of your monitor nodes
-   - **Content**: `Disk image, Container`
-
-### Access Ceph Dashboard
-
-The Ceph dashboard provides a web interface for monitoring:
-
-```bash
-# Enable dashboard (if not already done)
-ceph mgr module enable dashboard
-
-# Create dashboard user
-ceph dashboard ac-user-create admin -i <password_file> administrator
-
-# Get dashboard URL
-ceph mgr services
-```
+Nothing manual to do: `--add_storages` already registered the pool as a
+Proxmox RBD storage (named after the pool, default `rbd`), and the cluster
+is manageable from any node's web UI under **Node → Ceph**. To use it for
+Kubernetes VM disks, set `vm_storage: "rbd"` in `vars.yml`.
 
 ## Troubleshooting
 
@@ -309,16 +293,16 @@ To add more OSDs to existing nodes:
 2. **Run the OSD playbook** - it will detect and configure new disks automatically
 
 ```bash
-ansible-playbook playbooks/proxmox/ceph/osd-add.yml
+ansible-playbook playbooks/proxmox/ceph/03-osd-add.yml
 ```
 
 ### Monitor Addition (Advanced)
 
-The playbook maintains 3 monitor nodes by default. To add more monitors manually:
+The playbooks maintain 3 monitor nodes by default. To add more monitors manually:
 
 ```bash
-# SSH to a monitor node and run:
-ceph mon add <new-mon-name> <ip-address>
+# SSH to the target node and run:
+pveceph mon create
 ```
 
 **Note**: More than 5 monitors can impact performance. Odd numbers (3, 5) are recommended for quorum.

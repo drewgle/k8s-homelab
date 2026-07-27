@@ -1,0 +1,155 @@
+---
+- name: Prepare Proxmox nodes for Flatcar VMs
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/flatcar/versions.yaml') | from_yaml }}"
+    flatcar_version: "{{ versions.flatcar.version }}"
+    flatcar_channel: "{{ versions.flatcar.channel }}"
+
+  tasks:
+    - name: Check Proxmox cluster status
+      command: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Proxmox cluster is healthy
+      assert:
+        that: cluster_status.rc == 0
+        fail_msg: "Proxmox cluster not available or unhealthy"
+        success_msg: "Proxmox cluster is operational"
+
+    - name: Configure VM bridge
+      include_role:
+        name: proxmox_vm
+        tasks_from: bridge
+
+    - name: Download Flatcar ISO
+      get_url:
+        url: "https://{{ flatcar_channel }}.release.flatcar-linux.net/amd64-usr/{{ flatcar_version }}/flatcar_production_iso_image.iso"
+        dest: "/var/lib/vz/template/iso/flatcar-{{ flatcar_channel }}-{{ flatcar_version }}-amd64.iso"
+        mode: '0644'
+        timeout: 600
+
+- name: Provision Flatcar VMs on Proxmox
+  hosts: proxmox[0]
+  become: yes
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    flatcar_templates: "{{ playbook_dir }}/../../../linux/flatcar/templates"
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/flatcar/versions.yaml') | from_yaml }}"
+    flatcar_version: "{{ versions.flatcar.version }}"
+    flatcar_channel: "{{ versions.flatcar.channel }}"
+    kubernetes_version: "{{ versions.kubernetes.version }}"
+    flatcar_iso_file: "flatcar-{{ flatcar_channel }}-{{ flatcar_version }}-amd64.iso"
+    proxmox_nodes: "{{ groups['proxmox'] }}"
+    flatcar_nodes: "{{ groups['flatcar_controlplane'] + (groups['flatcar_worker'] | default([])) }}"
+
+  tasks:
+    - name: Distribute VMs across Proxmox nodes (round-robin, override with proxmox_node hostvar)
+      set_fact:
+        vm_placement: >-
+          {{ (vm_placement | default({}))
+             | combine({item: hostvars[item]['proxmox_node']
+                        | default(proxmox_nodes[idx % (proxmox_nodes | length)])}) }}
+      loop: "{{ flatcar_nodes }}"
+      loop_control:
+        index_var: idx
+
+    - name: Generate cloud-init snippets on target Proxmox nodes
+      template:
+        src: "{{ flatcar_templates }}/cloud-init-flatcar.yaml.j2"
+        dest: "/var/lib/vz/snippets/flatcar-cloud-init-{{ item }}.yaml"
+        mode: '0644'
+      loop: "{{ flatcar_nodes }}"
+      delegate_to: "{{ vm_placement[item] }}"
+      vars:
+        node_hostname: "{{ item }}"
+        node_ip: "{{ hostvars[item]['ansible_host'] }}"
+
+    - name: Generate Ignition configs for control plane nodes on target Proxmox nodes
+      template:
+        src: "{{ flatcar_templates }}/controlplane.yaml.j2"
+        dest: "/var/lib/vz/snippets/flatcar-ignition-{{ item }}.yaml"
+        mode: '0644'
+      loop: "{{ groups['flatcar_controlplane'] }}"
+      delegate_to: "{{ vm_placement[item] }}"
+      vars:
+        node_hostname: "{{ item }}"
+        node_ip: "{{ hostvars[item]['ansible_host'] }}"
+
+    - name: Generate Ignition configs for worker nodes on target Proxmox nodes
+      template:
+        src: "{{ flatcar_templates }}/worker.yaml.j2"
+        dest: "/var/lib/vz/snippets/flatcar-ignition-{{ item }}.yaml"
+        mode: '0644'
+      loop: "{{ groups['flatcar_worker'] | default([]) }}"
+      delegate_to: "{{ vm_placement[item] }}"
+      vars:
+        node_hostname: "{{ item }}"
+        node_ip: "{{ hostvars[item]['ansible_host'] }}"
+
+    - name: Create and start control plane VMs
+      include_role:
+        name: proxmox_vm
+        tasks_from: create
+      vars:
+        vm_name: "{{ item }}"
+        vm_id: "{{ hostvars[item]['vm_id'] }}"
+        vm_node: "{{ vm_placement[item] }}"
+        vm_cores: "{{ vm_cp_cores | default(4) }}"
+        vm_memory: "{{ vm_cp_memory | default(4096) }}"
+        vm_disk_size: "{{ vm_cp_disk_size | default('50G') }}"
+        vm_iso_file: "{{ flatcar_iso_file }}"
+        vm_extra_create_args: >-
+          --cicustom "user=local:snippets/flatcar-cloud-init-{{ item }}.yaml"
+          --ipconfig0 ip={{ hostvars[item]['ansible_host'] }}/{{ vm_cidr_bits | default('24') }},gw={{ vm_gateway }}
+      loop: "{{ groups['flatcar_controlplane'] }}"
+
+    - name: Create and start worker VMs
+      include_role:
+        name: proxmox_vm
+        tasks_from: create
+      vars:
+        vm_name: "{{ item }}"
+        vm_id: "{{ hostvars[item]['vm_id'] }}"
+        vm_node: "{{ vm_placement[item] }}"
+        vm_cores: "{{ vm_worker_cores | default(2) }}"
+        vm_memory: "{{ vm_worker_memory | default(8192) }}"
+        vm_disk_size: "{{ vm_worker_disk_size | default('100G') }}"
+        vm_iso_file: "{{ flatcar_iso_file }}"
+        vm_extra_create_args: >-
+          --cicustom "user=local:snippets/flatcar-cloud-init-{{ item }}.yaml"
+          --ipconfig0 ip={{ hostvars[item]['ansible_host'] }}/{{ vm_cidr_bits | default('24') }},gw={{ vm_gateway }}
+      loop: "{{ groups['flatcar_worker'] | default([]) }}"
+
+    - name: Wait for VMs to be reachable via SSH
+      wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 22
+        delay: 30
+        timeout: 300
+        state: started
+      loop: "{{ flatcar_nodes }}"
+      delegate_to: localhost
+      become: no
+
+    - name: Display VM information
+      debug:
+        msg:
+          - "Flatcar VMs have been provisioned successfully!"
+          - "Control plane nodes: {{ groups['flatcar_controlplane'] | join(', ') }}"
+          - "Worker nodes: {{ groups['flatcar_worker'] | default([]) | join(', ') }}"
+          - "Network: {{ vm_gateway }}/{{ vm_cidr_bits | default('24') }}"
+          - "Placement: {{ vm_placement }}"
+          - "Next steps:"
+          - "  1. Run 02-cluster-bootstrap.yml to initialize Kubernetes"
+          - "  2. Configure kubectl to access the cluster"

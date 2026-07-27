@@ -7,7 +7,10 @@ Automated setup and management for a Proxmox VE homelab with clustering, securit
 ### 1. Configure Environment
 
 ```bash
-cd ansible
+cd infrastructure/ansible
+
+# Install required collections
+ansible-galaxy collection install -r requirements.yml
 
 # Create configuration from example
 cp vars.yml.example vars.yml
@@ -31,16 +34,18 @@ ceph_public_network: "192.168.1.0/24"      # If using Ceph storage
 
 ```bash
 # Initial setup (uses password, then switches to SSH keys)
-ansible-playbook -k playbooks/proxmox/initial-setup.yml
+# Nodes imaged via the bare-metal auto-install (see
+# ../linux/proxmox/README.md) already have SSH keys - drop the -k flag.
+ansible-playbook -k playbooks/proxmox/01-initial-setup.yml
 
 # Security hardening
 ansible-playbook playbooks/proxmox/harden.yml
 
 # Create HA cluster
-ansible-playbook playbooks/proxmox/cluster-create.yml
+ansible-playbook playbooks/proxmox/03-cluster-create.yml
 
 # Optional: Deploy Ceph storage
-ansible-playbook playbooks/proxmox/ceph-deploy.yml
+ansible-playbook playbooks/proxmox/04-ceph-deploy.yml
 ```
 
 ### 3. Verify Deployment
@@ -69,11 +74,11 @@ ansible-playbook playbooks/proxmox/health-check.yml
 
 ### Main Playbooks
 
-- `initial-setup.yml` - Basic Proxmox setup with SSH keys
+- `01-initial-setup.yml` - Basic Proxmox setup with SSH keys
 - `harden.yml` - Security configuration (SSH, firewall, fail2ban)
-- `cluster-create.yml` - Proxmox HA cluster creation
+- `03-cluster-create.yml` - Proxmox HA cluster creation
 - `cluster-add-node.yml` - Add nodes to existing cluster
-- `ceph-deploy.yml` - Complete Ceph storage deployment
+- `04-ceph-deploy.yml` - Complete Ceph storage deployment
 - `ceph-expand.yml` - Add storage/nodes to Ceph cluster
 
 ### Verification & Health Checks
@@ -94,7 +99,7 @@ ansible-playbook playbooks/proxmox/health-check.yml
 
 ```bash
 # Add new nodes to inventory.yaml, then:
-ansible-playbook playbooks/proxmox/initial-setup.yml --limit new-node
+ansible-playbook playbooks/proxmox/01-initial-setup.yml --limit new-node
 ansible-playbook playbooks/proxmox/cluster-add-node.yml
 ```
 
@@ -103,7 +108,7 @@ ansible-playbook playbooks/proxmox/cluster-add-node.yml
 ```bash
 ansible-playbook playbooks/proxmox/health-check.yml     # Check cluster health
 ansible-playbook playbooks/proxmox/verify-hardening.yml # Verify security
-ansible-playbook playbooks/proxmox/reboot.yml           # Rolling reboots
+ansible-playbook playbooks/proxmox/02-reboot.yml           # Rolling reboots
 ```
 
 ### Debug Commands
@@ -126,8 +131,8 @@ ansible all -m ping                        # Test connectivity
 
 **Individual Ceph Operations**: Use playbooks in `playbooks/proxmox/ceph/` for specific tasks:
 
-- `ceph/common.yml` - Setup packages and directories only
-- `ceph/osd-add.yml` - Add storage to existing nodes
+- `ceph/01-common.yml` - Setup packages and directories only
+- `ceph/03-osd-add.yml` - Add storage to existing nodes
 - `ceph/status.yml` - Comprehensive health check
 
 **Important**: Read [playbooks/proxmox/CEPH.md](playbooks/proxmox/CEPH.md) first for requirements and network configuration.
@@ -156,19 +161,18 @@ The playbooks are organized by system type:
 
 ```
 playbooks/
-├── proxmox/          # Proxmox VE specific playbooks
-│   ├── initial-setup.yml
-│   ├── reboot.yml
-│   └── health-check.yml
-└── [future]/         # Add other system types here
-    ├── kubernetes/   # Example: Kubernetes playbooks
-    ├── docker/       # Example: Docker host playbooks
-    └── networking/   # Example: Network device playbooks
+├── bootstrap/        # Bare-metal PVE auto-install USB (render answers, build ISO)
+├── proxmox/          # Proxmox VE clustering, Ceph, hardening
+├── talos/            # Talos Kubernetes lifecycle
+├── flatcar/          # Flatcar Kubernetes lifecycle
+└── remove-vms.yml    # Tear down Talos or Flatcar VMs
+roles/
+└── proxmox_vm/       # Shared VM bridge + create/start tasks
 ```
 
 ### Adding More System Types
 
-To add playbooks for other systems (e.g., Docker, Kubernetes, networking):
+To add playbooks for other systems (e.g., Docker, networking):
 
 1. Create a new subfolder: `mkdir playbooks/docker`
 2. Add your playbooks to the new folder
@@ -177,11 +181,11 @@ To add playbooks for other systems (e.g., Docker, Kubernetes, networking):
 
 ### Adding More Packages
 
-Edit the "Install useful packages" task in `playbooks/proxmox/initial-setup.yml` to add more packages as needed.
+Edit the "Install useful packages" task in `playbooks/proxmox/01-initial-setup.yml` to add more packages as needed.
 
 ### Different Debian Versions
 
-The playbook handles both Bullseye (Debian 11) and Bookworm (Debian 12) repositories. It will automatically use the appropriate repository based on the detected OS version.
+The playbook detects the node's Debian release codename (bullseye, bookworm, trixie, ...) from gathered facts and configures the matching `pve-no-subscription` repository automatically. Enterprise repositories are disabled in both the classic one-line `.list` format (PVE 7/8) and the deb822 `.sources` format (PVE 9+).
 
 ## Troubleshooting
 

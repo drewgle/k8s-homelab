@@ -4,13 +4,13 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   vars:
     # Cluster configuration
     cluster_name: "{{ proxmox_cluster_name | default('homelab') }}"
     cluster_network: "{{ proxmox_cluster_network | default(ansible_default_ipv4.network + '/' + ansible_default_ipv4.netmask) }}"
-    
+
     # First node will be the cluster creator
     cluster_master: "{{ groups['proxmox'][0] }}"
 
@@ -64,7 +64,7 @@
       command: pvecm create {{ cluster_name }} --bindnet0_addr {{ ansible_default_ipv4.address }}
       when: inventory_hostname == cluster_master
       register: cluster_creation
-      
+
     - name: Wait for cluster to initialize
       pause:
         seconds: 15
@@ -81,7 +81,7 @@
       debug:
         msg: |
           ✅ Proxmox cluster '{{ cluster_name }}' created successfully!
-          
+
           Master Node: {{ cluster_master }}
           Cluster Status:
           {{ master_cluster_status.stdout_lines | join('\n          ') }}
@@ -96,10 +96,10 @@
       shell: pvecm nodes | grep {{ cluster_master }} | awk '{print $3}'
       register: master_ip
       when: inventory_hostname == cluster_master
-      
+
     - name: Add remaining nodes to cluster
       command: pvecm add {{ hostvars[cluster_master]['ansible_default_ipv4']['address'] }} --force
-      when: 
+      when:
         - inventory_hostname != cluster_master
         - hostvars[cluster_master]['cluster_creation'] is defined
       register: node_join
@@ -132,23 +132,23 @@
     - name: Display final cluster information
       debug:
         msg: |
-          
+
           🎉 Proxmox VE Cluster Setup Complete!
           ======================================
-          
+
           Cluster Name: {{ cluster_name }}
           Total Nodes: {{ groups['proxmox'] | length }}
-          
+
           Cluster Nodes:
           {{ cluster_nodes.stdout_lines | join('\n          ') }}
-          
+
           Next Steps:
           1. Access any node's web interface (https://NODE-IP:8006)
           2. Configure shared storage (NFS, Ceph, etc.)
           3. Set up high availability (HA) for VMs
           4. Configure backup schedules across cluster
           5. Test VM migration between nodes
-          
+
           Important Notes:
           • All nodes now share the same cluster configuration
           • VMs can be migrated between any cluster nodes
@@ -183,6 +183,6 @@
           {% for host in groups['proxmox'] %}
           • {{ host }}: https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:8006
           {% endfor %}
-          
+
           Use any of these URLs to access the cluster management interface.
       run_once: true

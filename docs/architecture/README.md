@@ -130,6 +130,10 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 - Consistent environments
 - API-driven management
 
+Flatcar Container Linux with kubeadm is maintained as an alternative node OS
+(`infrastructure/ansible/playbooks/flatcar/`) for comparison; both use the
+same VM network and IP ranges, so only one runs at a time.
+
 ### Storage Strategy
 **Decision**: Ceph for distributed storage
 **Rationale**:
@@ -179,11 +183,14 @@ Internet
 ```
 
 ### Network Zones
-- **Management Network**: 192.168.1.0/24 (Proxmox hosts)
-- **VM Network**: 192.168.10.0/24 (Virtual machines)
+
+Defaults from `infrastructure/ansible/vars.yml.example`:
+
+- **Management Network**: 192.168.1.0/24 (Proxmox hosts, Ceph public network)
+- **VM Network**: 192.168.100.0/24 on VLAN 100 (Kubernetes nodes)
 - **Container Network**: 10.244.0.0/16 (Pod CIDR)
 - **Service Network**: 10.96.0.0/12 (Service CIDR)
-- **Storage Network**: 192.168.2.0/24 (Ceph cluster)
+- **Storage Network**: 10.0.1.0/24 (optional dedicated Ceph cluster network)
 
 ## Security Architecture
 

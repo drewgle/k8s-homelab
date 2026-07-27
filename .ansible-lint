@@ -1,0 +1,27 @@
+---
+profile: basic
+
+# These rules are intentionally relaxed: the playbooks drive Proxmox's qm/pvecm
+# and talosctl CLIs, which have no module equivalents, and Ansible-style
+# yes/no booleans are used throughout.
+skip_list:
+  - no-changed-when
+  - command-instead-of-shell
+  - command-instead-of-module
+  - risky-shell-pipe
+  - risky-file-permissions
+  - ignore-errors
+  - package-latest
+  - fqcn
+  - name[casing]
+  - name[template]
+  - jinja[spacing]
+  - yaml[line-length]
+  - yaml[truthy]
+  - run-once[task]
+  - schema[vars]
+  - var-naming[no-role-prefix]
+
+exclude_paths:
+  - .github/
+  - docs/

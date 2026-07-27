@@ -3,7 +3,7 @@
 
 #cloud-config
 
-hostname: {{ inventory_hostname }}
+hostname: {{ node_hostname }}
 
 users:
   - name: core
@@ -16,12 +16,12 @@ users:
 
 write_files:
   - path: /etc/hostname
-    content: {{ inventory_hostname }}
+    content: {{ node_hostname }}
 
   - path: /etc/hosts
     content: |
       127.0.0.1   localhost
-      127.0.1.1   {{ inventory_hostname }}
+      127.0.1.1   {{ node_hostname }}
       ::1         localhost ip6-localhost ip6-loopback
       ff02::1     ip6-allnodes
       ff02::2     ip6-allrouters
@@ -33,7 +33,7 @@ write_files:
 
       [Network]
       DHCP=no
-      Address={{ ansible_default_ipv4.address }}/{{ vm_cidr_bits }}
+      Address={{ node_ip }}/{{ vm_cidr_bits | default('24') }}
       Gateway={{ vm_gateway }}
       DNS={{ dns_servers | join(' ') }}
 

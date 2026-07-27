@@ -1,0 +1,40 @@
+---
+- name: Create VM {{ vm_name }} (ID {{ vm_id }}) on {{ vm_node }}
+  shell: |
+    if qm status {{ vm_id }} >/dev/null 2>&1; then
+      echo "VM {{ vm_name }} already exists"
+      exit 0
+    fi
+    qm create {{ vm_id }} \
+      --name {{ vm_name }} \
+      --machine q35 \
+      --memory {{ vm_memory }} \
+      --cores {{ vm_cores }} \
+      --sockets 1 \
+      --numa 1 \
+      --ostype l26 \
+      --cpu cputype=host \
+      --scsihw virtio-scsi-pci \
+      --scsi0 {{ vm_storage }}:{{ vm_disk_size }},iothread=1 \
+      --ide2 local:iso/{{ vm_iso_file }},media=cdrom \
+      --boot order=ide2 \
+      --net0 virtio,bridge={{ vm_bridge_name }},tag={{ vm_vlan_id }},firewall=1 \
+      --serial0 socket \
+      --vga serial0 \
+      --agent enabled=1,fstrim_cloned_disks=1 \
+      --onboot 1 \
+      --tablet 0 {{ vm_extra_create_args | default('') }}
+    echo "Created VM {{ vm_name }}"
+  register: vm_create
+  changed_when: "'Created VM' in vm_create.stdout"
+  delegate_to: "{{ vm_node }}"
+
+- name: Start VM {{ vm_name }} (ID {{ vm_id }}) on {{ vm_node }}
+  shell: |
+    if ! qm status {{ vm_id }} | grep -q running; then
+      qm start {{ vm_id }}
+      echo "Started VM {{ vm_name }}"
+    fi
+  register: vm_start
+  changed_when: "'Started VM' in vm_start.stdout"
+  delegate_to: "{{ vm_node }}"

@@ -14,13 +14,13 @@ Before using these playbooks, ensure:
 
 ## Playbooks
 
-### provision-vms.yml
+### 01-provision-vms.yml
 
 Provisions Flatcar Container Linux VMs on Proxmox.
 
 **Usage:**
 ```bash
-ansible-playbook playbooks/flatcar/provision-vms.yml
+ansible-playbook playbooks/flatcar/01-provision-vms.yml
 ```
 
 **What it does:**
@@ -31,17 +31,19 @@ ansible-playbook playbooks/flatcar/provision-vms.yml
 - Starts VMs and waits for SSH connectivity
 
 **Configuration:**
-- VM specifications in `vars.yml` (`flatcar_*_cores`, `flatcar_*_memory`, etc.)
-- Network settings (`flatcar_vlan_id`, `flatcar_gateway`, etc.)
+- VM specifications in `vars.yml` (`vm_cp_cores`, `vm_worker_memory`, etc.)
+- Network settings (`vm_vlan_id`, `vm_gateway`, etc.) — shared with Talos
 - Node definitions in inventory groups
+- VMs are placed round-robin across Proxmox nodes; pin with a
+  `proxmox_node` hostvar in the inventory
 
-### cluster-bootstrap.yml
+### 02-cluster-bootstrap.yml
 
 Bootstraps a Kubernetes cluster on provisioned Flatcar nodes.
 
 **Usage:**
 ```bash
-ansible-playbook playbooks/flatcar/cluster-bootstrap.yml
+ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
 ```
 
 **What it does:**
@@ -103,19 +105,19 @@ ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
 ### Initial Setup
 1. **Provision VMs:**
    ```bash
-   ansible-playbook playbooks/flatcar/provision-vms.yml
+   ansible-playbook playbooks/flatcar/01-provision-vms.yml
    ```
 
 2. **Bootstrap Kubernetes cluster:**
    ```bash
-   ansible-playbook playbooks/flatcar/cluster-bootstrap.yml
+   ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
    ```
 
 3. **Configure kubectl:**
    ```bash
    # Copy the generated kubeconfig
-   cp infrastructure/generated/flatcar-kubeconfig-*.yaml ~/.kube/config
-   
+   cp infrastructure/linux/flatcar/generated/kubeconfig ~/.kube/config
+
    # Verify cluster access
    kubectl get nodes
    ```
@@ -132,16 +134,16 @@ ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
   ansible-playbook playbooks/remove-vms.yml -e "vm_type=flatcar"
   
   # Provision Talos VMs
-  ansible-playbook playbooks/talos/provision-vms.yml
+  ansible-playbook playbooks/talos/01-provision-vms.yml
   ```
 
 ## Network Configuration
 
 Flatcar and Talos VMs share the same network configuration:
-- **VLAN ID:** 100 (configurable via `flatcar_vlan_id`)
+- **VLAN ID:** 100 (configurable via `vm_vlan_id`)
 - **IP Range:** 192.168.100.201-203 (control plane), 192.168.100.211-213 (workers)
-- **Gateway:** 192.168.100.1
-- **Bridge:** vmbr1 (configurable via `flatcar_bridge_name`)
+- **Gateway:** 192.168.100.1 (configurable via `vm_gateway`)
+- **Bridge:** vmbr1 (configurable via `vm_bridge_name`)
 
 **Important:** You can only run either Flatcar OR Talos VMs at the same time since they use the same IP addresses. Use the remove-vms.yml playbook to switch between them.
 
@@ -174,8 +176,8 @@ Flatcar and Talos VMs share the same network configuration:
 ## Files Generated
 
 During execution, these files are created:
-- `/tmp/flatcar-cloud-init-*.yaml` - Cloud-init configs
-- `/tmp/flatcar-ignition-*.yaml` - Ignition configs
-- `infrastructure/generated/flatcar-kubeconfig-*.yaml` - Cluster access config
+- `/var/lib/vz/snippets/flatcar-cloud-init-*.yaml` - Cloud-init configs (on each VM's Proxmox node)
+- `/var/lib/vz/snippets/flatcar-ignition-*.yaml` - Ignition configs (on each VM's Proxmox node)
+- `infrastructure/linux/flatcar/generated/kubeconfig` - Cluster access config (gitignored)
 
-Temporary files are cleaned up automatically by the remove-vms.yml playbook.
+Snippets are cleaned up automatically by the remove-vms.yml playbook.

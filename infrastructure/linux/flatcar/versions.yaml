@@ -1,31 +1,40 @@
 # Flatcar Container Linux and Kubernetes version management
-# This file is monitored by Renovate for automatic updates
+# The "# renovate:" annotations are matched by the custom manager in
+# renovate.json for automatic updates.
 
 # Flatcar Container Linux versions
 flatcar:
   # Release channel: stable, beta, alpha
   channel: "stable"
-  # Current stable version (automatically updated by Renovate)
+  # OS version used for the install ISO. Running nodes track the release
+  # channel via update_engine, so this only needs occasional manual bumps.
   version: "3745.2.0"
   # Update strategy: manual or auto
   update_strategy: "auto"
 
 # Kubernetes version - should be compatible with containerd
 kubernetes:
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   version: "v1.29.3"
 
-# Container runtime versions (provided by Flatcar)
+# Container runtime versions (informational - provided by Flatcar)
 containerd:
   version: "1.7.13"
 
 # CNI plugin versions
 cni:
+  # renovate: datasource=github-releases depName=containernetworking/plugins
   plugins_version: "v1.4.1"
+  # renovate: datasource=github-releases depName=flannel-io/flannel
   flannel_version: "v0.24.4"
+  # renovate: datasource=github-releases depName=cilium/cilium
   cilium_version: "1.15.1"
 
 # Additional tools
 tools:
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubeadm_version: "v1.29.3"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubelet_version: "v1.29.3"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubectl_version: "v1.29.3"

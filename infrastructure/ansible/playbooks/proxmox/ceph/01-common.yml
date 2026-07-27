@@ -1,0 +1,41 @@
+---
+- name: Common Ceph Setup Tasks
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - "{{ playbook_dir }}/../../../vars.yml"
+
+  tasks:
+    - name: Check minimum node requirements
+      assert:
+        that: groups['proxmox'] | length >= 3
+        fail_msg: "Ceph requires at least 3 nodes for proper operation"
+        success_msg: "Sufficient nodes available for Ceph cluster ({{ groups['proxmox'] | length }} nodes)"
+      run_once: true
+
+    - name: Verify node is part of a Proxmox cluster
+      command: pvecm status
+      register: pvecm_status
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when the Proxmox cluster is missing
+      fail:
+        msg: "{{ inventory_hostname }} is not part of a Proxmox cluster. Run 03-cluster-create.yml first - pveceph requires cluster membership."
+      when: pvecm_status.rc != 0
+
+    - name: Check if Ceph packages are installed
+      stat:
+        path: /usr/bin/ceph-osd
+      register: ceph_osd_binary
+
+    - name: Install Ceph via pveceph (no-subscription repository)
+      command: pveceph install --repository no-subscription
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: not ceph_osd_binary.stat.exists
+
+    - name: Display node status
+      debug:
+        msg: "Node {{ inventory_hostname }}: Ceph packages {{ 'already present' if ceph_osd_binary.stat.exists else 'installed' }}"

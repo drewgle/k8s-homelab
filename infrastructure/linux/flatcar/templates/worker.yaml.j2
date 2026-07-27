@@ -109,7 +109,7 @@ systemd:
           --kubeconfig=/etc/kubernetes/kubelet.conf \
           --container-runtime-endpoint=unix:///run/containerd/containerd.sock \
           --pod-infra-container-image=registry.k8s.io/pause:3.9 \
-          --node-ip={{ ansible_default_ipv4.address }} \
+          --node-ip={{ node_ip }} \
           --v=2
         Restart=always
         StartLimitInterval=0

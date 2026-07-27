@@ -4,7 +4,7 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   tasks:
     - name: Check current cluster status on all nodes
@@ -21,7 +21,7 @@
 
     - name: Verify cluster exists
       fail:
-        msg: "No existing Proxmox cluster found. Use cluster-create.yml to create a cluster first."
+        msg: "No existing Proxmox cluster found. Use 03-cluster-create.yml to create a cluster first."
       when: existing_cluster_nodes | length == 0
       run_once: true
 
@@ -63,7 +63,7 @@
           Existing Cluster Information:
           • Cluster Name: {{ cluster_name }}
           • Primary Node: {{ existing_cluster_nodes[0] }}
-          
+
           Current Status:
           {{ existing_cluster_info.stdout_lines | join('\n          ') }}
       run_once: true
@@ -101,9 +101,9 @@
     - name: Display join results for each new node
       debug:
         msg: |
-          Node {{ inventory_hostname }} join result: 
+          Node {{ inventory_hostname }} join result:
           {{ 'SUCCESS ✓' if cluster_join_result.rc == 0 else 'FAILED ✗ - ' + (cluster_join_result.stderr | default('unknown error')) }}
-      when: 
+      when:
         - inventory_hostname in new_nodes
         - cluster_join_result is defined
 
@@ -158,19 +158,19 @@
     - name: Display final cluster status
       debug:
         msg: |
-          
+
           🎉 Node Addition to Proxmox Cluster Complete!
           ============================================
-          
+
           Cluster Name: {{ cluster_name }}
           Total Nodes: {{ groups['proxmox'] | length }}
           Successfully Added: {{ new_nodes | select('in', hostvars.keys()) | select('extract', hostvars, 'cluster_join_result', 'rc') | select('equalto', 0) | list | length }} nodes
-          
+
           {% if updated_cluster_nodes.rc == 0 %}
           Updated Cluster Nodes:
           {{ updated_cluster_nodes.stdout_lines | join('\n          ') }}
           {% endif %}
-          
+
           Node Status Summary:
           {% for node in new_nodes %}
           {% if hostvars[node]['cluster_join_result']['rc'] == 0 %}
@@ -179,19 +179,19 @@
           ✗ {{ node }}: Failed to join - {{ hostvars[node]['cluster_join_result']['stderr'] | default('unknown error') }}
           {% endif %}
           {% endfor %}
-          
+
           Web Interface Access (all nodes):
           {% for host in groups['proxmox'] %}
           • {{ host }}: https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:8006
           {% endfor %}
-          
+
           Next Steps:
           1. Verify cluster health in web interface
           2. Configure shared storage access for new nodes
           3. Test VM migration to/from new nodes
           4. Update HA groups if using high availability
           5. Configure backup schedules for new nodes
-          
+
           Troubleshooting:
           • If a node failed to join, check network connectivity and firewall settings
           • Ensure SSH key access is working between all nodes

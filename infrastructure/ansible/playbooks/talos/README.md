@@ -10,11 +10,11 @@ This directory contains Ansible playbooks for managing Talos Linux Kubernetes cl
 
 ## Available Playbooks
 
-### provision-vms.yml
+### 01-provision-vms.yml
 Create Talos VMs on Proxmox infrastructure with dedicated VLAN and static IPs.
 
 ```bash
-ansible-playbook playbooks/talos/provision-vms.yml
+ansible-playbook playbooks/talos/01-provision-vms.yml
 ```
 
 **What it does:**
@@ -30,11 +30,11 @@ ansible-playbook playbooks/talos/provision-vms.yml
 - **Network**: Isolated VLAN with static IPs
 - **Storage**: Uses Proxmox local-lvm by default
 
-### cluster-create.yml
+### 02-cluster-create.yml
 Bootstrap a new Talos Kubernetes cluster.
 
 ```bash
-ansible-playbook playbooks/talos/cluster-create.yml
+ansible-playbook playbooks/talos/02-cluster-create.yml
 ```
 
 **What it does:**
@@ -53,7 +53,7 @@ ansible-playbook playbooks/talos/add-node.yml -e "new_nodes=['talos-worker-03','
 ```
 
 **Requirements:**
-- Existing cluster secrets (from cluster-create.yml)
+- Existing cluster secrets (from 02-cluster-create.yml)
 - New nodes defined in inventory
 
 ### health-check.yml
@@ -90,22 +90,16 @@ ansible-playbook playbooks/talos/upgrade.yml -e "preserve=true staged=false"
 - `auto_approve`: Skip confirmation prompt (default: false)
 - `worker_upgrade_batch_size`: Worker nodes to upgrade simultaneously (default: 1)
 
-### remove-vms.yml
-Clean up and remove Talos VMs from Proxmox infrastructure.
+### Removing VMs
+VM teardown is handled by the shared playbook one level up:
 
 ```bash
-# Remove specific VMs (with confirmation)
-ansible-playbook playbooks/talos/remove-vms.yml -e "remove_vms=['talos-worker-03']"
+# Remove all Talos VMs (with confirmation)
+ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
 
 # Force removal without confirmation
-ansible-playbook playbooks/talos/remove-vms.yml -e "remove_vms=['talos-worker-03'] force=true"
+ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos" -e "force=true"
 ```
-
-**What it does:**
-- Stops running VMs gracefully
-- Destroys VMs and associated disks
-- Cleans up generated configuration files
-- Provides confirmation prompts for safety
 
 **⚠️ Warning**: This permanently destroys VMs and their data!
 
@@ -142,31 +136,35 @@ all:
 ### Variables
 Configure Talos settings in `vars.yml`:
 
+The Talos playbooks share the `kubernetes_*` and `vm_*` variables with the
+Flatcar playbooks — see `vars.yml.example` for the full list:
+
 ```yaml
-# Talos cluster configuration
-talos_cluster_name: "homelab-k8s"
-talos_cluster_endpoint: "https://talos-cp.homelab.local:6443"
-talos_dns_domain: "cluster.local"
-talos_cni: "flannel"  # or "cilium"
-talos_install_disk: "/dev/sda"
+# Kubernetes cluster configuration (shared with Flatcar)
+kubernetes_cluster_name: "homelab-k8s"
+kubernetes_cluster_endpoint: "https://192.168.100.201:6443"
+kubernetes_dns_domain: "cluster.local"
+kubernetes_cni: "flannel"  # or "cilium"
+kubernetes_install_disk: "/dev/sda"
 
 # Network configuration
-talos_pod_subnet: "10.244.0.0/16"
-talos_service_subnet: "10.96.0.0/12"
+kubernetes_pod_subnet: "10.244.0.0/16"
+kubernetes_service_subnet: "10.96.0.0/12"
 
-# Proxmox VM provisioning
-talos_vlan_id: 100
-talos_bridge_name: "vmbr1"
-talos_gateway: "192.168.100.1"
-talos_storage: "local-lvm"
+# Proxmox VM provisioning (shared with Flatcar)
+vm_vlan_id: 100
+vm_bridge_name: "vmbr1"
+vm_gateway: "192.168.100.1"
+vm_subnet: "192.168.100.0/24"
+vm_storage: "local-lvm"
 
 # VM specifications
-talos_cp_cores: 4
-talos_cp_memory: 4096
-talos_cp_disk_size: "50G"
-talos_worker_cores: 2
-talos_worker_memory: 8192
-talos_worker_disk_size: "100G"
+vm_cp_cores: 4
+vm_cp_memory: 4096
+vm_cp_disk_size: "50G"
+vm_worker_cores: 2
+vm_worker_memory: 8192
+vm_worker_disk_size: "100G"
 
 dns_servers:
   - "1.1.1.1"
@@ -175,16 +173,21 @@ ntp_servers:
   - "pool.ntp.org"
 ```
 
+VMs are placed round-robin across the Proxmox nodes; pin a VM to a specific
+node with a `proxmox_node: pve2` hostvar in the inventory.
+
 ## File Locations
 
-- **Machine configs**: `../../linux/talos/generated/`
-- **Kubeconfig**: `../../linux/talos/generated/kubeconfig`
-- **Cluster secrets**: `../../linux/talos/secrets.yaml` (DO NOT commit to git)
-- **Version management**: `../../linux/talos/versions.yaml`
+Relative to the repository root:
+
+- **Machine configs**: `infrastructure/linux/talos/generated/`
+- **Kubeconfig / talosconfig**: `infrastructure/linux/talos/generated/`
+- **Cluster secrets**: `infrastructure/linux/talos/secrets.yaml` (gitignored — never commit)
+- **Version management**: `infrastructure/linux/talos/versions.yaml`
 
 ## GitOps Integration
 
-Versions are managed through Renovate in `../../linux/talos/versions.yaml`:
+Versions are managed through Renovate in `infrastructure/linux/talos/versions.yaml`:
 
 ```yaml
 talos:
@@ -197,10 +200,10 @@ kubernetes:
 
 ```bash
 # 1. Provision VMs on Proxmox
-ansible-playbook playbooks/talos/provision-vms.yml
+ansible-playbook playbooks/talos/01-provision-vms.yml
 
 # 2. Create initial cluster
-ansible-playbook playbooks/talos/cluster-create.yml
+ansible-playbook playbooks/talos/02-cluster-create.yml
 
 # 3. Verify health
 ansible-playbook playbooks/talos/health-check.yml
@@ -223,7 +226,7 @@ ansible-playbook playbooks/talos/upgrade.yml
 - Verify network connectivity
 
 **"No such file or directory: secrets.yaml"**
-- Run `cluster-create.yml` first to generate secrets
+- Run `02-cluster-create.yml` first to generate secrets
 - Ensure secrets file isn't accidentally deleted
 
 **"Kubernetes API not ready"**

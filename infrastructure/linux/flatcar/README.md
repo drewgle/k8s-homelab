@@ -57,8 +57,8 @@ Template for initial cloud-init configuration:
 
 These templates are processed by Ansible playbooks in `/infrastructure/ansible/playbooks/flatcar/`:
 
-- `provision-vms.yml`: Provisions Flatcar VMs on Proxmox
-- `cluster-bootstrap.yml`: Bootstraps Kubernetes cluster using kubeadm
+- `01-provision-vms.yml`: Provisions Flatcar VMs on Proxmox
+- `02-cluster-bootstrap.yml`: Bootstraps Kubernetes cluster using kubeadm
 - `update.yml`: Performs rolling updates with node draining
 
 ## Update Strategy

@@ -1,13 +1,13 @@
 ---
 # Ceph Expand Cluster - Adds new nodes and storage to existing cluster
 - name: Run Common Setup on New Nodes
-  import_playbook: ceph/common.yml
+  import_playbook: ceph/01-common.yml
 
 - name: Add New Nodes to Cluster
   import_playbook: ceph/add-node.yml
 
 - name: Add OSDs from All Nodes
-  import_playbook: ceph/osd-add.yml
+  import_playbook: ceph/03-osd-add.yml
 
 - name: Final Status Check
   import_playbook: ceph/status.yml

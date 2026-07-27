@@ -15,7 +15,7 @@ all:
       vars:
         ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
         ansible_python_interpreter: /usr/bin/python3
-    
+
     # Talos Kubernetes cluster nodes
     talos_controlplane:
       hosts:
@@ -30,7 +30,7 @@ all:
           vm_id: 203
       vars:
         ansible_connection: local  # Talos managed via talosctl, not SSH
-        
+
     talos_worker:
       hosts:
         talos-worker-01:
@@ -60,7 +60,7 @@ all:
       vars:
         ansible_user: core
         ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
-        
+
     flatcar_worker:
       hosts:
         flatcar-worker-01:

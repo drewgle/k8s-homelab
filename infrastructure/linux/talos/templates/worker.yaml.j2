@@ -1,26 +1,26 @@
 # Talos machine configuration for worker nodes
-# This template is processed by Ansible using variables from vars.yml
+# Rendered by Ansible with vars.yml plus secrets loaded from secrets.yaml
+# (the output of `talosctl gen secrets`, loaded as `talos_secrets`).
+# Per-node values are passed in as `node_hostname` and `node_ip`.
 
 version: v1alpha1
 debug: false
 persist: true
 machine:
   type: worker
-  token: {{ talos_machine_token }}
+  token: {{ talos_secrets.trustdinfo.token }}
   ca:
-    crt: {{ talos_ca_crt | b64encode }}
-    key: {{ talos_ca_key | b64encode }}
+    crt: {{ talos_secrets.certs.os.crt }}
+    key: {{ talos_secrets.certs.os.key }}
   kubelet:
     image: ghcr.io/siderolabs/kubelet:{{ kubernetes_version }}
     defaultRuntimeSeccompProfileEnabled: true
     disableManifestsDirectory: true
     nodeIP:
       validSubnets:
-        - {{ ansible_default_ipv4.network }}/{{ ansible_default_ipv4.prefix }}
+        - {{ vm_subnet | default('192.168.100.0/24') }}
     clusterDNS:
-{% for host in groups['talos_controlplane'] %}
-      - {{ hostvars[host]['ansible_default_ipv4']['address'] }}
-{% endfor %}
+      - {{ kubernetes_cluster_dns | default('10.96.0.10') }}
   time:
     disabled: false
     servers:
@@ -38,19 +38,19 @@ machine:
   files: []
   env: {}
   network:
-    hostname: {{ inventory_hostname }}
+    hostname: {{ node_hostname }}
     nameservers:
 {% for ns in dns_servers | default(['1.1.1.1', '8.8.8.8']) %}
       - {{ ns }}
 {% endfor %}
-{% if talos_network_interface is defined %}
+{% if kubernetes_network_interface is defined %}
     interfaces:
-      - interface: {{ talos_network_interface }}
+      - interface: {{ kubernetes_network_interface }}
         addresses:
-          - {{ ansible_default_ipv4.address }}/{{ ansible_default_ipv4.prefix }}
+          - {{ node_ip }}/{{ vm_cidr_bits | default('24') }}
         routes:
           - network: 0.0.0.0/0
-            gateway: {{ ansible_default_ipv4.gateway }}
+            gateway: {{ vm_gateway }}
 {% endif %}
   nodeLabels: {}
   features:
@@ -62,20 +62,20 @@ machine:
       enabled: true
       port: 7445
 cluster:
-  id: {{ talos_cluster_id }}
-  secret: {{ talos_cluster_secret }}
+  id: {{ talos_secrets.cluster.id }}
+  secret: {{ talos_secrets.cluster.secret }}
   controlPlane:
-    endpoint: {{ talos_cluster_endpoint }}
-  clusterName: {{ talos_cluster_name | default('homelab-k8s') }}
+    endpoint: {{ kubernetes_cluster_endpoint }}
+  clusterName: {{ kubernetes_cluster_name | default('homelab-k8s') }}
   network:
-    dnsDomain: {{ talos_dns_domain | default('cluster.local') }}
+    dnsDomain: {{ kubernetes_dns_domain | default('cluster.local') }}
     podSubnets:
-      - {{ talos_pod_subnet | default('10.244.0.0/16') }}
+      - {{ kubernetes_pod_subnet | default('10.244.0.0/16') }}
     serviceSubnets:
-      - {{ talos_service_subnet | default('10.96.0.0/12') }}
+      - {{ kubernetes_service_subnet | default('10.96.0.0/12') }}
     cni:
-      name: {{ talos_cni | default('flannel') }}
-  token: {{ talos_bootstrap_token }}
+      name: {{ kubernetes_cni | default('flannel') }}
+  token: {{ talos_secrets.secrets.bootstraptoken }}
   ca:
-    crt: {{ talos_cluster_ca_crt | b64encode }}
-    key: {{ talos_cluster_ca_key | b64encode }}
+    crt: {{ talos_secrets.certs.k8s.crt }}
+    key: {{ talos_secrets.certs.k8s.key }}

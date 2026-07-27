@@ -4,14 +4,12 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   vars:
-    # Load version information
-    versions: "{{ lookup('file', '../../linux/flatcar/versions.yaml') | from_yaml }}"
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/flatcar/versions.yaml') | from_yaml }}"
     kubernetes_version: "{{ versions.kubernetes.version }}"
-    kubeadm_version: "{{ versions.tools.kubeadm_version }}"
-    
+
   tasks:
     - name: Wait for Flatcar to be ready
       wait_for_connection:
@@ -34,11 +32,10 @@
       register: cluster_initialized
 
     - name: Initialize Kubernetes cluster
-      shell: |
-        kubeadm init \
-          --config=/etc/kubernetes/kubeadm-config.yaml \
-          --upload-certs \
-          --v=5
+      command: >
+        kubeadm init
+        --config=/etc/kubernetes/kubeadm-config.yaml
+        --upload-certs
       when: not cluster_initialized.stat.exists
       register: kubeadm_init
 
@@ -57,30 +54,13 @@
         remote_src: yes
         owner: core
         group: core
-        mode: '0644'
-
-    - name: Get join command for control plane nodes
-      shell: kubeadm token create --print-join-command --certificate-key $(kubeadm init phase upload-certs --upload-certs | grep -vE "^(W|upload-certs|Using certificate authority)" | tail -1)
-      register: cp_join_command
-      when: not cluster_initialized.stat.exists or groups['flatcar_controlplane'] | length > 1
-
-    - name: Get join command for worker nodes
-      shell: kubeadm token create --print-join-command
-      register: worker_join_command
-      when: not cluster_initialized.stat.exists or groups['flatcar_worker'] | default([]) | length > 0
-
-    - name: Store join commands as facts
-      set_fact:
-        cp_join_cmd: "{{ cp_join_command.stdout if cp_join_command is defined else '' }}"
-        worker_join_cmd: "{{ worker_join_command.stdout if worker_join_command is defined else '' }}"
+        mode: '0600'
 
 
 - name: Join additional control plane nodes to cluster
   hosts: flatcar_controlplane[1:]
   become: yes
   gather_facts: yes
-  vars:
-    cp_join_cmd: "{{ hostvars[groups['flatcar_controlplane'][0]]['cp_join_cmd'] }}"
 
   tasks:
     - name: Wait for node to be ready
@@ -93,10 +73,17 @@
         path: /etc/kubernetes/kubelet.conf
       register: node_joined
 
+    - name: Generate control plane join command
+      shell: >
+        kubeadm token create --ttl 1h --print-join-command
+        --certificate-key $(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1)
+      delegate_to: "{{ groups['flatcar_controlplane'][0] }}"
+      when: not node_joined.stat.exists
+      register: cp_join_command
+
     - name: Join control plane node to cluster
-      shell: "{{ cp_join_cmd }}"
-      when: not node_joined.stat.exists and cp_join_cmd != ''
-      register: join_result
+      command: "{{ cp_join_command.stdout }}"
+      when: not node_joined.stat.exists
 
     - name: Create kubectl directory for core user
       file:
@@ -106,19 +93,20 @@
         group: core
         mode: '0755'
 
-    - name: Copy admin.conf from first control plane node
-      shell: |
-        scp -o StrictHostKeyChecking=no core@{{ hostvars[groups['flatcar_controlplane'][0]]['ansible_host'] }}:/etc/kubernetes/admin.conf /home/core/.kube/config
-        chown core:core /home/core/.kube/config
-      when: not node_joined.stat.exists
+    - name: Copy admin.conf to core user's kubectl config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/core/.kube/config
+        remote_src: yes
+        owner: core
+        group: core
+        mode: '0600'
 
 
 - name: Join worker nodes to cluster
   hosts: flatcar_worker
   become: yes
   gather_facts: yes
-  vars:
-    worker_join_cmd: "{{ hostvars[groups['flatcar_controlplane'][0]]['worker_join_cmd'] }}"
 
   tasks:
     - name: Wait for node to be ready
@@ -131,30 +119,42 @@
         path: /etc/kubernetes/kubelet.conf
       register: node_joined
 
+    - name: Generate worker join command
+      command: kubeadm token create --ttl 1h --print-join-command
+      delegate_to: "{{ groups['flatcar_controlplane'][0] }}"
+      when: not node_joined.stat.exists
+      register: worker_join_command
+
     - name: Join worker node to cluster
-      shell: "{{ worker_join_cmd }}"
-      when: not node_joined.stat.exists and worker_join_cmd != ''
-      register: join_result
+      command: "{{ worker_join_command.stdout }}"
+      when: not node_joined.stat.exists
 
 
 - name: Configure cluster networking and finalize setup
   hosts: flatcar_controlplane[0]
   become: yes
-  gather_facts: yes
+  gather_facts: no
   vars_files:
-    - ../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/flatcar/versions.yaml') | from_yaml }}"
 
   tasks:
-    - name: Wait for all nodes to be ready
+    - name: Wait for all nodes to register
       shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers
       register: node_status
-      until: node_status.stdout_lines | length == ((groups['flatcar_controlplane'] | length) + (groups['flatcar_worker'] | default([]) | length))
+      until: >-
+        node_status.stdout_lines | length ==
+        ((groups['flatcar_controlplane'] | length) + (groups['flatcar_worker'] | default([]) | length))
       retries: 30
       delay: 10
+      changed_when: false
 
     - name: Install CNI plugin (Flannel)
-      shell: |
-        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      command: >
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f
+        https://github.com/flannel-io/flannel/releases/download/{{ versions.cni.flannel_version }}/kube-flannel.yml
       when: kubernetes_cni | default('flannel') == 'flannel'
       register: cni_install
 
@@ -168,20 +168,25 @@
       register: cilium_install
 
     - name: Wait for all pods to be ready
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods --all-namespaces --field-selector=status.phase!=Running --no-headers
+      shell: >
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods --all-namespaces
+        --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers
       register: pending_pods
       until: pending_pods.stdout_lines | length == 0
       retries: 60
       delay: 10
-      ignore_errors: yes
+      changed_when: false
+      failed_when: false
 
     - name: Get cluster info
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf cluster-info
+      command: kubectl --kubeconfig=/etc/kubernetes/admin.conf cluster-info
       register: cluster_info
+      changed_when: false
 
     - name: Get node status
-      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
-      register: node_status
+      command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
+      register: final_node_status
+      changed_when: false
 
     - name: Display cluster status
       debug:
@@ -191,16 +196,10 @@
           - "{{ cluster_info.stdout_lines }}"
           - ""
           - "Node status:"
-          - "{{ node_status.stdout_lines }}"
-          - ""
-          - "To access the cluster:"
-          - "  1. Copy /etc/kubernetes/admin.conf from {{ inventory_hostname }}"
-          - "  2. Set KUBECONFIG environment variable or copy to ~/.kube/config"
-          - "  3. Run 'kubectl get nodes' to verify cluster access"
+          - "{{ final_node_status.stdout_lines }}"
 
-    - name: Save admin.conf to local machine
+    - name: Save kubeconfig to control machine
       fetch:
         src: /etc/kubernetes/admin.conf
-        dest: "../../generated/flatcar-kubeconfig-{{ kubernetes_cluster_name | default('flatcar') }}.yaml"
+        dest: "{{ playbook_dir }}/../../../linux/flatcar/generated/kubeconfig"
         flat: yes
-      delegate_to: localhost

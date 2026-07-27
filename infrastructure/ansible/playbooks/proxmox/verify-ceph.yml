@@ -4,11 +4,11 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   vars:
     verification_results: []
-    
+
   tasks:
     - name: Initialize verification results
       set_fact:
@@ -22,14 +22,14 @@
       register: ceph_installed
       failed_when: false
       changed_when: false
-      
+
     - name: Record Ceph installation status
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Ceph Installation', 'status': 'OK' if ceph_installed.rc == 0 else 'FAIL', 'details': 'Ceph command found' if ceph_installed.rc == 0 else 'Ceph not installed'}] }}"
 
     - name: Check Ceph monitor service
       service_facts:
-      
+
     - name: Find monitor service name
       set_fact:
         monitor_service: "{{ ansible_facts.services.keys() | select('match', 'ceph-mon@.*') | first | default('') }}"
@@ -66,7 +66,7 @@
     - name: Parse health status
       set_fact:
         health_status: "{{ ceph_health.stdout | from_json }}"
-      when: 
+      when:
         - ceph_health is defined
         - ceph_health.rc == 0
       run_once: true
@@ -74,14 +74,14 @@
     - name: Record cluster health
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Cluster Health', 'status': health_status.status, 'details': health_status.status + (' - ' + (health_status.summary | map(attribute='summary') | join(', ')) if health_status.summary | default([]) | length > 0 else '')}] }}"
-      when: 
+      when:
         - health_status is defined
       run_once: true
 
     - name: Record health check failure
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Cluster Health', 'status': 'FAIL', 'details': 'Unable to connect to cluster'}] }}"
-      when: 
+      when:
         - ceph_health is defined
         - ceph_health.rc != 0
       run_once: true
@@ -97,7 +97,7 @@
     - name: Parse cluster status
       set_fact:
         cluster_status: "{{ ceph_status.stdout | from_json }}"
-      when: 
+      when:
         - ceph_status is defined
         - ceph_status.rc == 0
       run_once: true
@@ -105,7 +105,7 @@
     - name: Record monitor status
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Monitor Status', 'status': 'OK', 'details': cluster_status.monmap.num_mons | string + ' monitors in quorum: ' + (cluster_status.quorum_names | join(', '))}] }}"
-      when: 
+      when:
         - cluster_status is defined
         - cluster_status.quorum_names | default([]) | length > 0
       run_once: true
@@ -128,7 +128,7 @@
     - name: Parse monitor hosts from config
       set_fact:
         monitor_hosts: "{{ ceph_config_raw.content | b64decode | regex_search('mon_host\\s*=\\s*(.+)', '\\1') | first | split(',') | map('trim') | list }}"
-      when: 
+      when:
         - ceph_config_raw is succeeded
         - ceph_config_raw.content | b64decode | regex_search('mon_host')
       run_once: true
@@ -147,7 +147,7 @@
     - name: Record connectivity results
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Monitor Connectivity', 'status': 'OK' if (monitor_connectivity.results | selectattr('failed', 'equalto', false) | list | length) == (monitor_hosts | length) else 'WARN', 'details': 'Connected to ' + (monitor_connectivity.results | selectattr('failed', 'equalto', false) | list | length | string) + '/' + (monitor_hosts | length | string) + ' monitors'}] }}"
-      when: 
+      when:
         - monitor_hosts is defined
         - monitor_connectivity is defined
       run_once: true
@@ -166,7 +166,7 @@
     - name: Parse storage information
       set_fact:
         storage_info: "{{ ceph_df.stdout | from_json }}"
-      when: 
+      when:
         - ceph_df is defined
         - ceph_df.rc == 0
       run_once: true
@@ -188,7 +188,7 @@
     - name: Parse pool information
       set_fact:
         pools_info: "{{ ceph_pools.stdout | from_json }}"
-      when: 
+      when:
         - ceph_pools is defined
         - ceph_pools.rc == 0
       run_once: true
@@ -203,6 +203,11 @@
     # Performance Test
     #
     - name: Test RBD functionality (if healthy)
+      when:
+        - health_status is defined
+        - health_status.status in ['HEALTH_OK', 'HEALTH_WARN']
+        - ceph_installed.rc == 0
+      run_once: true
       block:
         - name: Create test RBD image
           command: rbd create test-verify-{{ ansible_date_time.epoch }} --size 1G --pool rbd
@@ -220,12 +225,6 @@
           set_fact:
             verification_results: "{{ verification_results + [{'check': 'RBD Functionality', 'status': 'OK' if rbd_create.rc == 0 else 'WARN', 'details': 'Test image creation ' + ('successful' if rbd_create.rc == 0 else 'failed')}] }}"
 
-      when: 
-        - health_status is defined 
-        - health_status.status in ['HEALTH_OK', 'HEALTH_WARN']
-        - ceph_installed.rc == 0
-      run_once: true
-
     #
     # Collect All Results and Display Summary
     #
@@ -237,10 +236,10 @@
     - name: Display verification summary
       debug:
         msg: |
-          
+
           🔍 CEPH CLUSTER VERIFICATION SUMMARY
           =====================================
-          
+
           {% for result in all_results %}
           {% if result.status == 'OK' or result.status == 'HEALTH_OK' %}
           ✅ {{ result.check }}: {{ result.details }}
@@ -252,17 +251,17 @@
           ❌ {{ result.check }}: {{ result.details }}
           {% endif %}
           {% endfor %}
-          
+
           {% set ok_count = all_results | selectattr('status', 'in', ['OK', 'HEALTH_OK']) | list | length %}
           {% set warn_count = all_results | selectattr('status', 'in', ['WARN', 'HEALTH_WARN']) | list | length %}
           {% set fail_count = all_results | selectattr('status', 'equalto', 'FAIL') | list | length %}
           {% set info_count = all_results | selectattr('status', 'equalto', 'INFO') | list | length %}
-          
+
           SUMMARY: {{ ok_count }} OK, {{ warn_count }} Warnings, {{ fail_count }} Failures, {{ info_count }} Info
-          
+
           {% if fail_count == 0 and warn_count == 0 %}
           🎉 Ceph cluster is fully operational!
-          
+
           Next steps:
           • Add to Proxmox: Datacenter → Storage → Add → RBD
           • Pool: rbd, Monitors: {{ monitor_hosts | default(['check /etc/ceph/ceph.conf']) | join(',') }}
@@ -274,19 +273,23 @@
           • This is often normal for new clusters settling in
           {% else %}
           🚨 Cluster has failures - check logs and configuration
-          
+
           Troubleshooting:
           • Check logs: tail -f /var/log/ceph/*.log
-          • Network: ping between nodes  
+          • Network: ping between nodes
           • Services: systemctl status ceph-*
           • Time sync: timedatectl status
           {% endif %}
-          
+
           📚 Documentation: playbooks/proxmox/CEPH.md
-          
+
       run_once: true
 
     - name: Display detailed status information (when requested)
+      when:
+        - show_detailed | default(false) | bool
+        - health_status is defined
+      run_once: true
       block:
         - name: Show cluster status details
           command: ceph -s
@@ -301,17 +304,12 @@
         - name: Display detailed information
           debug:
             msg: |
-              
+
               📊 DETAILED CLUSTER INFORMATION
               ================================
-              
+
               Cluster Status:
               {{ detailed_status.stdout if detailed_status is defined and detailed_status.rc == 0 else 'Not available' }}
-              
+
               OSD Layout:
               {{ osd_tree.stdout if osd_tree is defined and osd_tree.rc == 0 else 'Not available' }}
-              
-      when: 
-        - show_detailed | default(false) | bool
-        - health_status is defined
-      run_once: true

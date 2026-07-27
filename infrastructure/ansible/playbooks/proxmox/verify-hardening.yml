@@ -4,11 +4,11 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   vars:
     verification_results: []
-    
+
   tasks:
     - name: Initialize verification results
       set_fact:
@@ -25,8 +25,8 @@
 
     - name: Parse SSH configuration settings
       set_fact:
-        ssh_settings: "{{ sshd_config.stdout_lines | 
-          map('trim') | 
+        ssh_settings: "{{ sshd_config.stdout_lines |
+          map('trim') |
           select('match', '^(passwordauthentication|pubkeyauthentication|permitrootlogin|permitemptypasswords|x11forwarding|protocol|maxauthtries|clientaliveinterval)\\s+') |
           map('split', ' ') |
           items2dict }}"
@@ -81,8 +81,8 @@
     - name: Record firewall rules
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Firewall Rules', 'status': 'INFO', 'details': ufw_rules_count.stdout + ' rules configured'}] }}"
-      when: 
-        - ufw_rules_count is defined 
+      when:
+        - ufw_rules_count is defined
         - ufw_rules_count.rc == 0
 
     #
@@ -106,7 +106,7 @@
     - name: Parse Fail2Ban jails
       set_fact:
         fail2ban_jails: "{{ fail2ban_status.stdout | regex_search('Jail list:\\s*(.+)', '\\1') | first | split(',') | map('trim') | list }}"
-      when: 
+      when:
         - fail2ban_status is defined
         - fail2ban_status.rc == 0
 
@@ -135,7 +135,7 @@
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Kernel Parameter: ' + item.item.name, 'status': 'OK' if item.value == item.item.expected else 'FAIL', 'details': 'Value: ' + item.value | string + ' (Expected: ' + item.item.expected + ')'}] }}"
       loop: "{{ sysctl_checks.results }}"
-      when: 
+      when:
         - item is not failed
         - item.value is defined
 
@@ -155,7 +155,7 @@
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'File Permissions: ' + item.item.path, 'status': 'OK' if (item.stat.mode == item.item.expected_mode and item.stat.pw_name == item.item.expected_owner) else 'WARN', 'details': 'Mode: ' + item.stat.mode + ', Owner: ' + item.stat.pw_name + ':' + item.stat.gr_name}] }}"
       loop: "{{ file_perms.results }}"
-      when: 
+      when:
         - item.stat.exists
 
     #
@@ -199,7 +199,7 @@
       register: enterprise_repo_check
       failed_when: false
 
-    - name: Record enterprise repository status  
+    - name: Record enterprise repository status
       set_fact:
         verification_results: "{{ verification_results + [{'check': 'Enterprise Repository', 'status': 'OK' if not enterprise_repo_check.changed else 'WARN', 'details': 'Disabled (recommended for home use)' if not enterprise_repo_check.changed else 'Still enabled'}] }}"
 
@@ -214,10 +214,10 @@
     - name: Display security verification summary
       debug:
         msg: |
-          
+
           🔒 SECURITY HARDENING VERIFICATION SUMMARY
           ===========================================
-          
+
           {% for result in all_results %}
           {% if result.status == 'OK' %}
           ✅ {{ result.check }}: {{ result.details }}
@@ -229,17 +229,17 @@
           ❌ {{ result.check }}: {{ result.details }}
           {% endif %}
           {% endfor %}
-          
+
           {% set ok_count = all_results | selectattr('status', 'equalto', 'OK') | list | length %}
           {% set warn_count = all_results | selectattr('status', 'equalto', 'WARN') | list | length %}
           {% set fail_count = all_results | selectattr('status', 'equalto', 'FAIL') | list | length %}
           {% set info_count = all_results | selectattr('status', 'equalto', 'INFO') | list | length %}
-          
+
           SUMMARY: {{ ok_count }} OK, {{ warn_count }} Warnings, {{ fail_count }} Failures, {{ info_count }} Info
-          
+
           {% if fail_count == 0 and warn_count == 0 %}
           🎉 Security hardening is fully compliant!
-          
+
           Maintenance:
           • Monitor logs: tail -f /var/log/fail2ban.log
           • Check updates: apt list --upgradable | grep security
@@ -247,32 +247,32 @@
           {% elif fail_count == 0 %}
           ⚠️  Security is operational with warnings - review items above
           • Some settings may need adjustment for your environment
-          • Monitor for any security alerts or suspicious activity  
+          • Monitor for any security alerts or suspicious activity
           {% else %}
           🚨 Security hardening has failures - immediate attention required
-          
+
           Next steps:
           • Re-run hardening playbook: ansible-playbook playbooks/proxmox/harden.yml
           • Check SSH config: systemctl status ssh && vi /etc/ssh/sshd_config
           • Verify firewall: ufw status verbose
           • Review services: systemctl --failed
           {% endif %}
-          
+
           📚 Documentation: playbooks/proxmox/HARDENING.md
-          
+
       run_once: true
 
     - name: Display per-node security summary
       debug:
         msg: |
-          
+
           🔒 Node {{ inventory_hostname }} Security Summary:
           {% set node_results = verification_results %}
           {% set node_ok = node_results | selectattr('status', 'equalto', 'OK') | list | length %}
           {% set node_warn = node_results | selectattr('status', 'equalto', 'WARN') | list | length %}
           {% set node_fail = node_results | selectattr('status', 'equalto', 'FAIL') | list | length %}
           - ✅ OK: {{ node_ok }} checks passed
-          - ⚠️  Warnings: {{ node_warn }} items need attention  
+          - ⚠️  Warnings: {{ node_warn }} items need attention
           - ❌ Failures: {{ node_fail }} critical issues
-          
+
       when: ansible_play_hosts | length > 1

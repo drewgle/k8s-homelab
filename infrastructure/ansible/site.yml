@@ -1,4 +1,14 @@
 ---
-# Main site playbook - runs all setup tasks in order
-- import_playbook: playbooks/proxmox/initial-setup.yml
-- import_playbook: playbooks/proxmox/reboot.yml
+# Full Proxmox infrastructure stack: initial setup, reboot, clustering, Ceph.
+# Kubernetes provisioning is a separate choice (Talos or Flatcar share IPs):
+#   ansible-playbook playbooks/talos/01-provision-vms.yml && ansible-playbook playbooks/talos/02-cluster-create.yml
+#   ansible-playbook playbooks/flatcar/01-provision-vms.yml && ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
+# Optional hardening: ansible-playbook playbooks/proxmox/harden.yml
+- name: Initial Proxmox setup
+  import_playbook: playbooks/proxmox/01-initial-setup.yml
+- name: Rolling reboot
+  import_playbook: playbooks/proxmox/02-reboot.yml
+- name: Create Proxmox cluster
+  import_playbook: playbooks/proxmox/03-cluster-create.yml
+- name: Deploy Ceph storage
+  import_playbook: playbooks/proxmox/04-ceph-deploy.yml

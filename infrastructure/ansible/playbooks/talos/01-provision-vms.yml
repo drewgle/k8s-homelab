@@ -1,0 +1,121 @@
+---
+- name: Prepare Proxmox nodes for Talos VMs
+  hosts: proxmox
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/talos/versions.yaml') | from_yaml }}"
+    talos_installer_version: "{{ versions.talos.installer }}"
+
+  tasks:
+    - name: Check Proxmox cluster status
+      command: pvecm status
+      register: cluster_status
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Proxmox cluster is healthy
+      assert:
+        that: cluster_status.rc == 0
+        fail_msg: "Proxmox cluster not available or unhealthy"
+        success_msg: "Proxmox cluster is operational"
+
+    - name: Configure VM bridge
+      include_role:
+        name: proxmox_vm
+        tasks_from: bridge
+
+    - name: Download Talos ISO
+      get_url:
+        url: "https://github.com/siderolabs/talos/releases/download/{{ talos_installer_version }}/metal-amd64.iso"
+        dest: "/var/lib/vz/template/iso/talos-{{ talos_installer_version }}-amd64.iso"
+        mode: '0644'
+        timeout: 300
+
+- name: Provision Talos VMs on Proxmox
+  hosts: proxmox[0]
+  become: yes
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    versions: "{{ lookup('file', playbook_dir + '/../../../linux/talos/versions.yaml') | from_yaml }}"
+    talos_installer_version: "{{ versions.talos.installer }}"
+    talos_iso_file: "talos-{{ talos_installer_version }}-amd64.iso"
+    proxmox_nodes: "{{ groups['proxmox'] }}"
+    talos_nodes: "{{ groups['talos_controlplane'] + (groups['talos_worker'] | default([])) }}"
+
+  tasks:
+    - name: Distribute VMs across Proxmox nodes (round-robin, override with proxmox_node hostvar)
+      set_fact:
+        vm_placement: >-
+          {{ (vm_placement | default({}))
+             | combine({item: hostvars[item]['proxmox_node']
+                        | default(proxmox_nodes[idx % (proxmox_nodes | length)])}) }}
+      loop: "{{ talos_nodes }}"
+      loop_control:
+        index_var: idx
+
+    - name: Create and start control plane VMs
+      include_role:
+        name: proxmox_vm
+        tasks_from: create
+      vars:
+        vm_name: "{{ item }}"
+        vm_id: "{{ hostvars[item]['vm_id'] }}"
+        vm_node: "{{ vm_placement[item] }}"
+        vm_cores: "{{ vm_cp_cores | default(4) }}"
+        vm_memory: "{{ vm_cp_memory | default(4096) }}"
+        vm_disk_size: "{{ vm_cp_disk_size | default('50G') }}"
+        vm_iso_file: "{{ talos_iso_file }}"
+      loop: "{{ groups['talos_controlplane'] }}"
+
+    - name: Create and start worker VMs
+      include_role:
+        name: proxmox_vm
+        tasks_from: create
+      vars:
+        vm_name: "{{ item }}"
+        vm_id: "{{ hostvars[item]['vm_id'] }}"
+        vm_node: "{{ vm_placement[item] }}"
+        vm_cores: "{{ vm_worker_cores | default(2) }}"
+        vm_memory: "{{ vm_worker_memory | default(8192) }}"
+        vm_disk_size: "{{ vm_worker_disk_size | default('100G') }}"
+        vm_iso_file: "{{ talos_iso_file }}"
+      loop: "{{ groups['talos_worker'] | default([]) }}"
+
+    - name: Wait for VMs to boot into Talos maintenance mode
+      wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 50000
+        delay: 30
+        timeout: 600
+      loop: "{{ talos_nodes }}"
+      delegate_to: localhost
+      become: no
+
+    - name: Display VM creation summary
+      debug:
+        msg: |
+          === Talos VM Provisioning Complete ===
+
+          Control Plane VMs: {{ groups['talos_controlplane'] | length }}
+          Worker VMs: {{ groups['talos_worker'] | default([]) | length }}
+
+          Network Configuration:
+          - VLAN ID: {{ vm_vlan_id | default(100) }}
+          - Bridge: {{ vm_bridge_name | default('vmbr1') }}
+          - Gateway: {{ vm_gateway }}
+
+          VM Placement:
+          {% for host in talos_nodes %}
+          - {{ host }}: VM {{ hostvars[host]['vm_id'] }} on {{ vm_placement[host] }} ({{ hostvars[host]['ansible_host'] }})
+          {% endfor %}
+
+          Next Steps:
+          1. Verify VMs are accessible on port 50000
+          2. Run: ansible-playbook playbooks/talos/02-cluster-create.yml

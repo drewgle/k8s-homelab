@@ -1,23 +1,26 @@
 # Talos and Kubernetes version management
-# This file is monitored by Renovate for automatic updates
+# The "# renovate:" annotations are matched by the custom manager in
+# renovate.json for automatic updates.
 
 # Talos Linux versions
 talos:
-  # Installer image used for initial OS installation and upgrades
+  # renovate: datasource=github-releases depName=siderolabs/talos
   installer: "v1.7.0"
   # Talos system extensions (if needed in future)
   extensions: {}
 
 # Kubernetes version - should be compatible with Talos version
 kubernetes:
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   version: "v1.29.3"
 
-# Container runtime versions (managed by Talos)
+# Container runtime versions (informational - managed by Talos)
 containerd:
   version: "1.7.13"
 
 # CNI versions (if using custom CNI)
 cni:
-  # Flannel is default for Talos, Cilium alternative
+  # renovate: datasource=github-releases depName=flannel-io/flannel
   flannel: "v0.24.2"
+  # renovate: datasource=github-releases depName=cilium/cilium
   cilium: "v1.15.1"

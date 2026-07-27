@@ -4,7 +4,7 @@
   become: yes
   gather_facts: no
   serial: 1  # Reboot one host at a time
-  
+
   tasks:
     - name: Check if reboot is required
       stat:

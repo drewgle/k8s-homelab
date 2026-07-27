@@ -4,7 +4,7 @@
   become: yes
   gather_facts: yes
   vars_files:
-    - ../../../vars.yml
+    - "{{ playbook_dir }}/../../../vars.yml"
 
   tasks:
     - name: Check if Ceph is configured
@@ -42,7 +42,7 @@
           delegate_to: "{{ item }}"
           run_once: true
           loop: "{{ groups['proxmox'] }}"
-          when: 
+          when:
             - hostvars[item]['cluster_health']['rc'] | default(1) == 0
             - hostvars[item]['ceph_configured']['stat']['exists'] | default(false)
 
@@ -93,38 +93,38 @@
     - name: Display comprehensive cluster status
       debug:
         msg: |
-          
+
           🏥 CEPH CLUSTER HEALTH REPORT
           ════════════════════════════════════════════════════════
-          
+
           {% if cluster_error is defined %}
           ❌ {{ cluster_error }}
           {% else %}
-          
+
           Overall Status:
           {{ cluster_status.stdout_lines | join('\n          ') }}
-          
+
           {% if health_detail.rc == 0 and health_detail.stdout_lines | length > 1 %}
           Health Details:
           {{ health_detail.stdout_lines | join('\n          ') }}
           {% endif %}
-          
+
           {% if osd_tree.rc == 0 %}
           OSD Tree:
           {{ osd_tree.stdout_lines | join('\n          ') }}
           {% endif %}
-          
+
           {% if storage_usage.rc == 0 %}
           Storage Usage:
           {{ storage_usage.stdout_lines | join('\n          ') }}
           {% endif %}
-          
+
           {% if pool_info.rc == 0 %}
           Pool Information:
           {{ pool_info.stdout_lines | join('\n          ') }}
           {% endif %}
           {% endif %}
-          
+
           Node Summary:
           {% for host in groups['proxmox'] %}
           {% if hostvars[host]['ceph_configured']['stat']['exists'] %}
@@ -133,7 +133,7 @@
           • {{ host }}: Not configured for Ceph
           {% endif %}
           {% endfor %}
-          
+
           ════════════════════════════════════════════════════════
       run_once: true
 
@@ -141,7 +141,7 @@
       debug:
         msg: |
           ⚠️  Common Issues to Check:
-          
+
           {% if cluster_health.rc != 0 %}
           🔴 Cluster Connectivity Issues:
           • Check network connectivity between nodes
@@ -149,16 +149,16 @@
           • Ensure SSH key authentication is working
           • Check if monitor services are running
           {% endif %}
-          
+
           Quick Commands for Investigation:
           • Monitor cluster events: ceph -w
           • Check detailed logs: sudo tail -f /var/log/ceph/*.log
           • Verify time sync: timedatectl status
           • Test network: ping <other-nodes>
           • Check services: systemctl status ceph-mon@$(hostname)
-          
+
       run_once: true
-      when: 
-        - cluster_health.rc != 0 or 
+      when:
+        - cluster_health.rc != 0 or
           (health_detail.stdout is defined and 'HEALTH_WARN' in health_detail.stdout) or
           (health_detail.stdout is defined and 'HEALTH_ERR' in health_detail.stdout)

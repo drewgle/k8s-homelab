@@ -5,12 +5,10 @@
   gather_facts: yes
   serial: 1  # Update nodes one at a time
   vars_files:
-    - ../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   vars:
-    # Load version information
-    versions: "{{ lookup('file', '../../linux/flatcar/versions.yaml') | from_yaml }}"
-    drain_timeout: 300  # 5 minutes
+    drain_timeout: 300
     kubectl_config: "/etc/kubernetes/admin.conf"
 
   tasks:
@@ -18,17 +16,6 @@
       stat:
         path: /etc/kubernetes/kubelet.conf
       register: k8s_node
-
-    - name: Get kubectl config path
-      set_fact:
-        kubectl_config: "{{ '/home/core/.kube/config' if inventory_hostname in groups['flatcar_controlplane'] else '/tmp/admin.conf' }}"
-
-    - name: Copy kubectl config for worker nodes
-      shell: |
-        scp -o StrictHostKeyChecking=no core@{{ hostvars[groups['flatcar_controlplane'][0]]['ansible_host'] }}:/home/core/.kube/config /tmp/admin.conf
-      when: 
-        - k8s_node.stat.exists
-        - inventory_hostname in groups['flatcar_worker'] | default([])
 
     - name: Check if updates are available
       shell: |
@@ -49,7 +36,9 @@
           - "Current version: {{ current_version.stdout }}"
           - "Update status: {{ 'Reboot required' if 'UPDATE_STATUS_UPDATED_NEED_REBOOT' in update_status.stdout else 'Up to date' }}"
 
-    - block:
+    - name: Drain, update, and reboot node
+      when: "'UPDATE_STATUS_UPDATED_NEED_REBOOT' in update_status.stdout"
+      block:
         - name: Cordon node to prevent new pods
           shell: kubectl --kubeconfig={{ kubectl_config }} cordon {{ inventory_hostname }}
           delegate_to: "{{ groups['flatcar_controlplane'][0] }}"
@@ -180,8 +169,6 @@
               - "Current version: {{ new_version.stdout }}"
               - "Status: {{ 'Updated' if current_version.stdout != new_version.stdout else 'No update needed' }}"
 
-      when: "'UPDATE_STATUS_UPDATED_NEED_REBOOT' in update_status.stdout"
-
     - name: Display no update message
       debug:
         msg:
@@ -195,15 +182,15 @@
   become: yes
   gather_facts: no
   vars_files:
-    - ../../vars.yml
+    - "{{ playbook_dir }}/../../vars.yml"
 
   tasks:
     - name: Get cluster node status
-      shell: kubectl --kubeconfig=/home/core/.kube/config get nodes -o wide
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide
       register: final_node_status
 
     - name: Get pod status
-      shell: kubectl --kubeconfig=/home/core/.kube/config get pods --all-namespaces | grep -E "(Pending|Error|CrashLoopBackOff)" || echo "All pods healthy"
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods --all-namespaces | grep -E "(Pending|Error|CrashLoopBackOff)" || echo "All pods healthy"
       register: pod_health
 
     - name: Display final cluster status

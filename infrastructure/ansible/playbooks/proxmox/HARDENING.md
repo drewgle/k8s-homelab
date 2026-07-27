@@ -19,7 +19,7 @@ The hardening playbook enhances security across multiple layers:
 
 ### Before Running
 
-- **Initial Setup Complete** - Run `initial-setup.yml` first
+- **Initial Setup Complete** - Run `01-initial-setup.yml` first
 - **Network Planning** - Document allowed services and ports
 - **Backup Configuration** - Create system backups before hardening
 - **Test Environment** - Verify changes in non-production first
@@ -127,6 +127,12 @@ ansible-playbook playbooks/proxmox/harden.yml -e @custom-security.yml
 - Cluster networks automatically allowed
 - Source-based restrictions for storage traffic
 
+**Relationship to the Proxmox firewall:** UFW is the single managed firewall
+on these nodes. The playbook explicitly keeps the built-in Proxmox firewall
+disabled datacenter-wide (`/etc/pve/firewall/cluster.fw` with `enable: 0`) so
+the two never double-filter. Do not enable the PVE firewall in the web UI
+without removing UFW first.
+
 ### Fail2Ban Intrusion Prevention
 
 **Protected Services:**
@@ -192,7 +198,7 @@ ansible-playbook playbooks/proxmox/harden.yml -e @custom-security.yml
 **Time Synchronization:**
 
 - Chrony NTP service
-- Secure time servers
+- Servers taken from `ntp_servers` in vars.yml
 - Localhost-only access
 - Comprehensive logging
 

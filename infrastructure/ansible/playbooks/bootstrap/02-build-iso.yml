@@ -1,0 +1,82 @@
+---
+- name: Build Proxmox auto-install ISO
+  hosts: localhost
+  become: no
+  gather_facts: no
+  vars_files:
+    - "{{ playbook_dir }}/../../vars.yml"
+
+  vars:
+    proxmox_dir: "{{ playbook_dir }}/../../../linux/proxmox"
+    generated_dir: "{{ proxmox_dir }}/generated"
+    versions: "{{ lookup('file', proxmox_dir + '/versions.yaml') | from_yaml }}"
+    iso_version: "{{ versions.proxmox.iso_version }}"
+    iso_sha256: "{{ versions.proxmox.iso_sha256 }}"
+    iso_file: "proxmox-ve_{{ iso_version }}.iso"
+    iso_auto_file: "proxmox-ve_{{ iso_version }}-auto.iso"
+    docker_user: "{{ lookup('pipe', 'id -u') }}:{{ lookup('pipe', 'id -g') }}"
+    cert_fingerprint_arg: >-
+      {{ ('--cert-fingerprint ' + autoinstall_cert_fingerprint)
+         if (autoinstall_cert_fingerprint | default('') | length > 0) else '' }}
+
+  tasks:
+    - name: Verify Docker is available
+      command: docker version
+      changed_when: false
+
+    - name: Verify autoinstall_url is configured
+      assert:
+        that: autoinstall_url is defined and autoinstall_url | length > 0
+        fail_msg: "Set autoinstall_url in vars.yml (the autopve /answer endpoint)"
+
+    - name: Ensure generated directory exists
+      file:
+        path: "{{ generated_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download Proxmox VE ISO (skipped when present with matching checksum)
+      get_url:
+        url: "https://enterprise.proxmox.com/iso/{{ iso_file }}"
+        dest: "{{ generated_dir }}/{{ iso_file }}"
+        checksum: "sha256:{{ iso_sha256 }}"
+        mode: '0644'
+        timeout: 3600
+
+    - name: Build proxmox-auto-install-assistant container image
+      command: docker build -t pve-autoinstall-assistant {{ proxmox_dir }}/autoinstall
+      changed_when: false
+
+    - name: Remove previous prepared ISO
+      file:
+        path: "{{ generated_dir }}/{{ iso_auto_file }}"
+        state: absent
+
+    - name: Prepare auto-install ISO pointing at autopve
+      command: >
+        docker run --rm
+        --user {{ docker_user }}
+        -v {{ generated_dir }}:/work
+        pve-autoinstall-assistant
+        proxmox-auto-install-assistant prepare-iso /work/{{ iso_file }}
+        --fetch-from http
+        --url {{ autoinstall_url }}
+        {{ cert_fingerprint_arg }}
+        --output /work/{{ iso_auto_file }}
+
+    - name: Inspect prepared ISO
+      command: >
+        docker run --rm
+        -v {{ generated_dir }}:/work:ro
+        pve-autoinstall-assistant
+        proxmox-auto-install-assistant inspect-iso /work/{{ iso_auto_file }}
+      register: iso_inspect
+      changed_when: false
+
+    - name: Show build result
+      debug:
+        msg:
+          - "Prepared ISO: {{ generated_dir }}/{{ iso_auto_file }}"
+          - "{{ iso_inspect.stdout_lines }}"
+          - "Write it to USB (destructive - double-check the device!):"
+          - "  sudo dd if={{ generated_dir }}/{{ iso_auto_file }} of=/dev/sdX bs=4M conv=fsync status=progress"
