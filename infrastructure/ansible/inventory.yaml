@@ -44,3 +44,34 @@ all:
           vm_id: 213
       vars:
         ansible_connection: local  # Talos managed via talosctl, not SSH
+
+    # Flatcar Kubernetes cluster nodes (shares same IPs as Talos but different VMs)
+    flatcar_controlplane:
+      hosts:
+        flatcar-cp-01:
+          ansible_host: 192.168.100.201
+          vm_id: 301
+        flatcar-cp-02:
+          ansible_host: 192.168.100.202
+          vm_id: 302
+        flatcar-cp-03:
+          ansible_host: 192.168.100.203
+          vm_id: 303
+      vars:
+        ansible_user: core
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+        
+    flatcar_worker:
+      hosts:
+        flatcar-worker-01:
+          ansible_host: 192.168.100.211
+          vm_id: 311
+        flatcar-worker-02:
+          ansible_host: 192.168.100.212
+          vm_id: 312
+        flatcar-worker-03:
+          ansible_host: 192.168.100.213
+          vm_id: 313
+      vars:
+        ansible_user: core
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'

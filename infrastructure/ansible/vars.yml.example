@@ -12,33 +12,38 @@ proxmox_cluster_name: "homelab"              # Name for your Proxmox cluster
 ceph_public_network: "192.168.1.0/24"    # Network for client communications
 ceph_cluster_network: "10.0.1.0/24"      # Network for cluster communications (optional, can be same as public)
 
-# Talos Kubernetes cluster configuration
-talos_cluster_name: "homelab-k8s"                    # Name for your Talos Kubernetes cluster
-talos_cluster_endpoint: "https://192.168.100.201:6443"  # Control plane endpoint (should match VLAN network)
-talos_dns_domain: "cluster.local"                    # Kubernetes cluster DNS domain
-talos_cni: "flannel"                                 # Container Network Interface: flannel, cilium
-talos_install_disk: "/dev/sda"                       # Disk for Talos installation
+# Shared Kubernetes cluster configuration (used by both Talos and Flatcar)
+kubernetes_cluster_name: "homelab-k8s"                       # Name for your Kubernetes cluster
+kubernetes_cluster_endpoint: "https://192.168.100.201:6443"   # Control plane endpoint (should match VLAN network)
+kubernetes_dns_domain: "cluster.local"                        # Kubernetes cluster DNS domain
+kubernetes_cni: "flannel"                                     # Container Network Interface: flannel, cilium
+kubernetes_install_disk: "/dev/sda"                           # Disk for OS installation
 
-# Talos network configuration
-talos_pod_subnet: "10.244.0.0/16"                    # Pod CIDR subnet
-talos_service_subnet: "10.96.0.0/12"                 # Service CIDR subnet
-# talos_network_interface: "eth0"                     # Optional: specific network interface
+# Shared Kubernetes network configuration
+kubernetes_pod_subnet: "10.244.0.0/16"                        # Pod CIDR subnet
+kubernetes_service_subnet: "10.96.0.0/12"                     # Service CIDR subnet
+kubernetes_cluster_dns: "10.96.0.10"                          # Cluster DNS service IP
+# kubernetes_network_interface: "eth0"                         # Optional: specific network interface
 
+# Shared VM provisioning on Proxmox
+vm_vlan_id: 100                                               # VLAN ID for VM network isolation
+vm_bridge_name: "vmbr1"                                       # Proxmox bridge for VMs
+vm_gateway: "192.168.100.1"                                   # Gateway IP for VM VLAN
+vm_cidr_bits: "24"                                           # Network CIDR bits (e.g., /24)
+vm_storage: "local-lvm"                                       # Proxmox storage for VM disks
 
-# Talos VM provisioning on Proxmox
-talos_vlan_id: 100                                       # VLAN ID for Talos network isolation
-talos_bridge_name: "vmbr1"                               # Proxmox bridge for Talos VMs
-talos_gateway: "192.168.100.1"                           # Gateway IP for Talos VLAN
-talos_cidr_bits: "24"                                    # Network CIDR bits (e.g., /24)
-talos_storage: "local-lvm"                               # Proxmox storage for VM disks
+# Shared VM specifications
+vm_cp_cores: 4                                               # CPU cores for control plane VMs
+vm_cp_memory: 4096                                           # Memory (MB) for control plane VMs
+vm_cp_disk_size: "50G"                                       # Disk size for control plane VMs
+vm_worker_cores: 2                                           # CPU cores for worker VMs
+vm_worker_memory: 8192                                       # Memory (MB) for worker VMs
+vm_worker_disk_size: "100G"                                  # Disk size for worker VMs
 
-# Talos VM specifications
-talos_cp_cores: 4                                        # CPU cores for control plane VMs
-talos_cp_memory: 4096                                    # Memory (MB) for control plane VMs  
-talos_cp_disk_size: "50G"                                # Disk size for control plane VMs
-talos_worker_cores: 2                                    # CPU cores for worker VMs
-talos_worker_memory: 8192                                # Memory (MB) for worker VMs
-talos_worker_disk_size: "100G"                           # Disk size for worker VMs
+# Platform-specific configuration
+# Flatcar update configuration
+flatcar_update_strategy: "reboot"                            # Update strategy: reboot, etcd-lock, off
+flatcar_update_group: "stable"                               # Update group: stable, beta, alpha
 
 # DNS and NTP configuration
 dns_servers:

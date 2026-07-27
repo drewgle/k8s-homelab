@@ -1,0 +1,174 @@
+---
+- name: Remove VMs (Talos or Flatcar) from Proxmox
+  hosts: proxmox[0]
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - ../vars.yml
+
+  vars:
+    # VM types that can be removed
+    vm_types:
+      talos:
+        groups: "{{ groups['talos_controlplane'] + groups['talos_worker'] | default([]) }}"
+        prefix: "talos"
+      flatcar:
+        groups: "{{ groups['flatcar_controlplane'] + groups['flatcar_worker'] | default([]) }}"
+        prefix: "flatcar"
+
+  tasks:
+    - name: Validate required parameters
+      assert:
+        that:
+          - vm_type is defined
+          - vm_type in vm_types.keys()
+        fail_msg: |
+          ERROR: You must specify vm_type as an extra variable.
+          
+          Usage:
+            ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos" [--force]
+            ansible-playbook playbooks/remove-vms.yml -e "vm_type=flatcar" [--force]
+          
+          Available VM types: {{ vm_types.keys() | join(', ') }}
+        success_msg: "VM type '{{ vm_type }}' is valid"
+
+    - name: Get list of VMs to remove
+      set_fact:
+        target_vms: "{{ vm_types[vm_type]['groups'] }}"
+        vm_prefix: "{{ vm_types[vm_type]['prefix'] }}"
+
+    - name: Check if any VMs exist for removal
+      assert:
+        that:
+          - target_vms | length > 0
+        fail_msg: "No {{ vm_type }} VMs found in inventory to remove"
+        success_msg: "Found {{ target_vms | length }} {{ vm_type }} VMs to remove"
+
+    - name: Get current VM list from Proxmox
+      shell: qm list
+      register: vm_list_raw
+      changed_when: false
+
+    - name: Parse VM list
+      set_fact:
+        existing_vms: "{{ vm_list_raw.stdout_lines[1:] | map('regex_replace', '\\s+', ' ') | map('split', ' ') | list }}"
+
+    - name: Filter VMs that actually exist
+      set_fact:
+        vms_to_remove: []
+
+    - name: Build list of VMs to remove
+      set_fact:
+        vms_to_remove: "{{ vms_to_remove + [{'name': item, 'vm_id': hostvars[item]['vm_id'], 'ip': hostvars[item]['ansible_host']}] }}"
+      loop: "{{ target_vms }}"
+      when: hostvars[item]['vm_id'] | string in (existing_vms | map(attribute='1') | list)
+
+    - name: Display VMs to be removed
+      debug:
+        msg:
+          - "The following {{ vm_type }} VMs will be removed:"
+          - "{{ vms_to_remove | map(attribute='name') | list | join(', ') if vms_to_remove | length > 0 else 'None (VMs do not exist)' }}"
+          - ""
+          - "VM Details:"
+      when: vms_to_remove | length > 0
+
+    - name: Show VM details
+      debug:
+        msg: "  - {{ item.name }} (ID: {{ item.vm_id }}, IP: {{ item.ip }})"
+      loop: "{{ vms_to_remove }}"
+      when: vms_to_remove | length > 0
+
+    - name: Exit if no VMs to remove
+      meta: end_play
+      when: vms_to_remove | length == 0
+
+    - name: Check for force flag
+      set_fact:
+        force_removal: "{{ force | default(false) | bool }}"
+
+    - name: Confirm VM removal
+      pause:
+        prompt: |
+          
+          WARNING: This will permanently destroy the above {{ vm_type }} VMs and all their data!
+          
+          This action cannot be undone.
+          
+          Type 'yes' to confirm removal, or 'no' to cancel
+      register: confirmation
+      when: not force_removal
+
+    - name: Validate confirmation
+      assert:
+        that:
+          - confirmation.user_input | lower == 'yes' or force_removal
+        fail_msg: "VM removal cancelled by user"
+        success_msg: "VM removal confirmed"
+      when: not force_removal
+
+    - name: Stop VMs before removal
+      shell: qm stop {{ item.vm_id }}
+      loop: "{{ vms_to_remove }}"
+      register: vm_stop_result
+      failed_when: vm_stop_result.rc != 0 and 'not running' not in vm_stop_result.stderr
+      changed_when: vm_stop_result.rc == 0
+
+    - name: Wait for VMs to stop
+      pause:
+        seconds: 10
+
+    - name: Remove VMs and their disks
+      shell: qm destroy {{ item.vm_id }} --purge
+      loop: "{{ vms_to_remove }}"
+      register: vm_removal
+      failed_when: vm_removal.rc != 0 and 'does not exist' not in vm_removal.stderr
+
+    - name: Clean up cloud-init and Ignition configs
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/var/lib/vz/snippets/{{ vm_prefix }}-cloud-init-{{ vm_item.name }}.yaml"
+        - "/var/lib/vz/snippets/{{ vm_prefix }}-ignition-{{ vm_item.name }}.yaml"
+        - "/tmp/{{ vm_prefix }}-cloud-init-{{ vm_item.name }}.yaml"
+        - "/tmp/{{ vm_prefix }}-ignition-{{ vm_item.name }}.yaml"
+      loop_control:
+        loop_var: item
+        label: "{{ item }}"
+      vars:
+        vm_item: "{{ outer_item }}"
+      loop: "{{ vms_to_remove }}"
+      loop_control:
+        loop_var: outer_item
+      ignore_errors: yes
+
+    - name: Verify VM removal
+      shell: qm list | grep "{{ item.vm_id }}" || echo "removed"
+      loop: "{{ vms_to_remove }}"
+      register: verify_removal
+      changed_when: false
+      failed_when: verify_removal.stdout != "removed"
+
+    - name: Display removal summary
+      debug:
+        msg:
+          - "{{ vm_type | title }} VM removal completed successfully!"
+          - ""
+          - "Removed VMs:"
+          - "{{ vms_to_remove | map(attribute='name') | list | join(', ') }}"
+          - ""
+          - "VM IDs removed: {{ vms_to_remove | map(attribute='vm_id') | list | join(', ') }}"
+          - "IP addresses freed: {{ vms_to_remove | map(attribute='ip') | list | join(', ') }}"
+          - ""
+          - "These IP addresses can now be used by the other VM type."
+
+    - name: Show next steps
+      debug:
+        msg:
+          - "Next steps:"
+          - "  1. Update any external DNS records if needed"
+          - "  2. Clean up any remaining {{ vm_type }}-specific configurations"
+          - "  3. The same IP addresses can now be used for {{ 'Flatcar' if vm_type == 'talos' else 'Talos' }} VMs"
+          - ""
+          - "To provision {{ 'Flatcar' if vm_type == 'talos' else 'Talos' }} VMs using the same IPs:"
+          - "  ansible-playbook playbooks/{{ 'flatcar' if vm_type == 'talos' else 'talos' }}/provision-vms.yml"

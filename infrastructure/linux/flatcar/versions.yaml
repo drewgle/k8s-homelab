@@ -1,0 +1,31 @@
+# Flatcar Container Linux and Kubernetes version management
+# This file is monitored by Renovate for automatic updates
+
+# Flatcar Container Linux versions
+flatcar:
+  # Release channel: stable, beta, alpha
+  channel: "stable"
+  # Current stable version (automatically updated by Renovate)
+  version: "3745.2.0"
+  # Update strategy: manual or auto
+  update_strategy: "auto"
+
+# Kubernetes version - should be compatible with containerd
+kubernetes:
+  version: "v1.29.3"
+
+# Container runtime versions (provided by Flatcar)
+containerd:
+  version: "1.7.13"
+
+# CNI plugin versions
+cni:
+  plugins_version: "v1.4.1"
+  flannel_version: "v0.24.4"
+  cilium_version: "1.15.1"
+
+# Additional tools
+tools:
+  kubeadm_version: "v1.29.3"
+  kubelet_version: "v1.29.3"
+  kubectl_version: "v1.29.3"

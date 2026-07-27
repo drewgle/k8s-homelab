@@ -14,13 +14,13 @@
     # VM specifications
     vm_specs:
       controlplane:
-        cores: "{{ talos_cp_cores | default(4) }}"
-        memory: "{{ talos_cp_memory | default(4096) }}"
-        disk_size: "{{ talos_cp_disk_size | default('50G') }}"
+        cores: "{{ vm_cp_cores | default(4) }}"
+        memory: "{{ vm_cp_memory | default(4096) }}"
+        disk_size: "{{ vm_cp_disk_size | default('50G') }}"
       worker:
-        cores: "{{ talos_worker_cores | default(2) }}"
-        memory: "{{ talos_worker_memory | default(8192) }}"
-        disk_size: "{{ talos_worker_disk_size | default('100G') }}"
+        cores: "{{ vm_worker_cores | default(2) }}"
+        memory: "{{ vm_worker_memory | default(8192) }}"
+        disk_size: "{{ vm_worker_disk_size | default('100G') }}"
 
   tasks:
     - name: Check Proxmox cluster status
@@ -36,11 +36,11 @@
 
     - name: Create Talos VLAN bridge if not exists
       shell: |
-        if ! ip link show {{ talos_bridge_name | default('vmbr1') }} >/dev/null 2>&1; then
-          ip link add name {{ talos_bridge_name | default('vmbr1') }} type bridge
-          ip link set {{ talos_bridge_name | default('vmbr1') }} up
-          echo "auto {{ talos_bridge_name | default('vmbr1') }}" >> /etc/network/interfaces
-          echo "iface {{ talos_bridge_name | default('vmbr1') }} inet manual" >> /etc/network/interfaces
+        if ! ip link show {{ vm_bridge_name | default('vmbr1') }} >/dev/null 2>&1; then
+          ip link add name {{ vm_bridge_name | default('vmbr1') }} type bridge
+          ip link set {{ vm_bridge_name | default('vmbr1') }} up
+          echo "auto {{ vm_bridge_name | default('vmbr1') }}" >> /etc/network/interfaces
+          echo "iface {{ vm_bridge_name | default('vmbr1') }} inet manual" >> /etc/network/interfaces
           echo "        bridge-ports none" >> /etc/network/interfaces
           echo "        bridge-stp off" >> /etc/network/interfaces
           echo "        bridge-fd 0" >> /etc/network/interfaces
@@ -72,7 +72,7 @@
       vars:
         node_hostname: "{{ item }}"
         node_ip: "{{ hostvars[item]['ansible_host'] }}"
-        node_gateway: "{{ talos_gateway }}"
+        node_gateway: "{{ vm_gateway }}"
         node_netmask: "{{ talos_netmask | default('255.255.255.0') }}"
 
     - name: Create control plane VMs
@@ -93,7 +93,7 @@
           --ostype l26 \
           --cpu cputype=host \
           --scsihw virtio-scsi-pci \
-          --scsi0 {{ talos_storage | default('local-lvm') }}:{{ vm_specs.controlplane.disk_size }},iothread=1 \
+          --scsi0 {{ vm_storage | default('local-lvm') }}:{{ vm_specs.controlplane.disk_size }},iothread=1 \
           --ide2 local:iso/talos-{{ talos_installer_version }}-amd64.iso,media=cdrom \
           --boot order=ide2 \
           --net0 virtio,bridge={{ talos_bridge_name | default('vmbr1') }},tag={{ talos_vlan_id | default(100) }},firewall=1 \
@@ -133,7 +133,7 @@
           --ostype l26 \
           --cpu cputype=host \
           --scsihw virtio-scsi-pci \
-          --scsi0 {{ talos_storage | default('local-lvm') }}:{{ vm_specs.worker.disk_size }},iothread=1 \
+          --scsi0 {{ vm_storage | default('local-lvm') }}:{{ vm_specs.worker.disk_size }},iothread=1 \
           --ide2 local:iso/talos-{{ talos_installer_version }}-amd64.iso,media=cdrom \
           --boot order=ide2 \
           --net0 virtio,bridge={{ talos_bridge_name | default('vmbr1') }},tag={{ talos_vlan_id | default(100) }},firewall=1 \

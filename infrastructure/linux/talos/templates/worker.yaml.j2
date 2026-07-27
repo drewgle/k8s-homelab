@@ -31,7 +31,7 @@ machine:
     net.core.somaxconn: 65535
     net.core.netdev_max_backlog: 4096
   install:
-    disk: {{ talos_install_disk | default('/dev/sda') }}
+    disk: {{ kubernetes_install_disk | default('/dev/sda') }}
     image: ghcr.io/siderolabs/installer:{{ talos_installer_version }}
     bootloader: true
     wipe: false

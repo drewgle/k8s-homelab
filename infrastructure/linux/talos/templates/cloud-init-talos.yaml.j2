@@ -14,7 +14,7 @@ write_files:
       Name=eth0
       
       [Network]
-      Address={{ node_ip }}/{{ talos_cidr_bits | default('24') }}
+      Address={{ node_ip }}/{{ vm_cidr_bits | default('24') }}
       Gateway={{ node_gateway }}
       DNS={{ dns_servers[0] | default('1.1.1.1') }}
       DNS={{ dns_servers[1] | default('8.8.8.8') }}

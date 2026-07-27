@@ -1,0 +1,191 @@
+# Ignition configuration for Flatcar Container Linux control plane nodes
+# This template is processed by Ansible using variables from vars.yml
+
+variant: fcos
+version: 1.5.0
+
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - {{ lookup('url', 'https://github.com/' + github_username + '.keys', split_lines=False) }}
+      groups:
+        - docker
+        - wheel
+
+storage:
+  directories:
+    - path: /etc/kubernetes
+      mode: 0755
+    - path: /etc/kubernetes/manifests
+      mode: 0755
+    - path: /etc/kubernetes/pki
+      mode: 0700
+    - path: /var/lib/kubelet
+      mode: 0755
+    - path: /opt/bin
+      mode: 0755
+
+  files:
+    # containerd configuration
+    - path: /etc/containerd/config.toml
+      mode: 0644
+      contents:
+        inline: |
+          version = 2
+          root = "/var/lib/containerd"
+          state = "/run/containerd"
+
+          [grpc]
+            address = "/run/containerd/containerd.sock"
+            uid = 0
+            gid = 0
+
+          [plugins."io.containerd.grpc.v1.cri"]
+            sandbox_image = "registry.k8s.io/pause:3.9"
+
+          [plugins."io.containerd.grpc.v1.cri".containerd]
+            snapshotter = "overlayfs"
+            default_runtime_name = "runc"
+
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+            runtime_type = "io.containerd.runc.v2"
+
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+            SystemdCgroup = true
+
+          [plugins."io.containerd.grpc.v1.cri".cni]
+            bin_dir = "/opt/cni/bin"
+            conf_dir = "/etc/cni/net.d"
+
+    # kubelet configuration
+    - path: /var/lib/kubelet/config.yaml
+      mode: 0644
+      contents:
+        inline: |
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          kind: KubeletConfiguration
+          authentication:
+            anonymous:
+              enabled: false
+            webhook:
+              enabled: true
+            x509:
+              clientCAFile: /etc/kubernetes/pki/ca.crt
+          authorization:
+            mode: Webhook
+          cgroupDriver: systemd
+          clusterDNS:
+            - {{ kubernetes_cluster_dns }}
+          clusterDomain: {{ kubernetes_dns_domain }}
+          cpuManagerReconcilePeriod: 0s
+          evictionPressureTransitionPeriod: 0s
+          fileCheckFrequency: 0s
+          healthzBindAddress: 127.0.0.1
+          healthzPort: 10248
+          httpCheckFrequency: 0s
+          imageMinimumGCAge: 0s
+          nodeStatusReportFrequency: 0s
+          nodeStatusUpdateFrequency: 0s
+          rotateCertificates: true
+          runtimeRequestTimeout: 0s
+          staticPodPath: /etc/kubernetes/manifests
+          streamingConnectionIdleTimeout: 0s
+          syncFrequency: 0s
+          volumeStatsAggPeriod: 0s
+
+    # kubeadm configuration
+    - path: /etc/kubernetes/kubeadm-config.yaml
+      mode: 0644
+      contents:
+        inline: |
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: ClusterConfiguration
+          kubernetesVersion: {{ kubernetes_version }}
+          controlPlaneEndpoint: {{ kubernetes_cluster_endpoint }}
+          networking:
+            podSubnet: {{ kubernetes_pod_subnet }}
+            serviceSubnet: {{ kubernetes_service_subnet }}
+          dns:
+            type: CoreDNS
+          etcd:
+            local:
+              dataDir: /var/lib/etcd
+          apiServer:
+            bindPort: 6443
+            certSANs:
+{% for host in groups['flatcar_controlplane'] %}
+              - {{ hostvars[host]['ansible_default_ipv4']['address'] }}
+              - {{ hostvars[host]['inventory_hostname'] }}
+{% endfor %}
+              - {{ kubernetes_cluster_endpoint | regex_replace('https?://') | regex_replace(':.*') }}
+          controllerManager: {}
+          scheduler: {}
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta3
+          kind: InitConfiguration
+          localAPIEndpoint:
+            advertiseAddress: {{ ansible_default_ipv4.address }}
+            bindPort: 6443
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+            criSocket: unix:///run/containerd/containerd.sock
+
+systemd:
+  units:
+    - name: containerd.service
+      enabled: true
+
+    - name: kubelet.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=kubelet: The Kubernetes Node Agent
+        Documentation=https://kubernetes.io/docs/
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        ExecStart=/opt/bin/kubelet \
+          --config=/var/lib/kubelet/config.yaml \
+          --kubeconfig=/etc/kubernetes/kubelet.conf \
+          --container-runtime-endpoint=unix:///run/containerd/containerd.sock \
+          --pod-infra-container-image=registry.k8s.io/pause:3.9 \
+          --node-ip={{ ansible_default_ipv4.address }} \
+          --v=2
+        Restart=always
+        StartLimitInterval=0
+        RestartSec=10
+
+        [Install]
+        WantedBy=multi-user.target
+
+    - name: setup-kubernetes.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Setup Kubernetes binaries
+        Wants=network-online.target
+        After=network-online.target
+        ConditionPathExists=!/opt/bin/kubelet
+
+        [Service]
+        Type=oneshot
+        ExecStart=/bin/bash -c '
+          cd /tmp && \
+          curl -L --remote-name-all https://dl.k8s.io/release/{{ kubernetes_version }}/bin/linux/amd64/{kubeadm,kubelet,kubectl} && \
+          chmod +x {kubeadm,kubelet,kubectl} && \
+          mv {kubeadm,kubelet,kubectl} /opt/bin/'
+        RemainAfterExit=true
+
+        [Install]
+        WantedBy=multi-user.target
+
+    - name: disable-update-engine.service
+      enabled: false
+      mask: true
+
+    - name: locksmithd.service
+      enabled: false
+      mask: true
