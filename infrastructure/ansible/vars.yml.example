@@ -52,8 +52,6 @@ mgmt_cidr_bits: "24"                                          # CIDR bits for no
 root_mailto: "you@example.com"                                # Root mail target in the installer answer
 pve_country: "us"                                             # Installer locale settings
 pve_keyboard: "en-us"
-autoinstall_url: "https://proxmox-answers.internal.bluespeed.info/answer"  # autopve answer endpoint
-# autoinstall_cert_fingerprint: ""                            # Only if the autopve TLS cert is not publicly trusted
 
 # DNS and NTP configuration
 dns_servers:

@@ -6,9 +6,10 @@
 ## Context
 
 The Ansible layer produces a bare Kubernetes cluster (Talos or Flatcar) with a
-CNI and nothing else. The architecture doc already names Argo CD as the GitOps
-tool and Kustomize as the configuration mechanism; this spec turns that into a
-concrete bootstrap path so that *everything above the cluster* is reconciled
+CNI and nothing else. The architecture doc already names
+[Argo CD](https://argo-cd.readthedocs.io/en/stable/) as the GitOps tool and
+[Kustomize](https://kustomize.io/) as the configuration mechanism; this spec
+turns that into a concrete bootstrap path so that *everything above the cluster* is reconciled
 from this repository rather than applied by hand.
 
 The dividing line between the two toolchains:
@@ -51,7 +52,8 @@ It runs on localhost against the generated kubeconfig
 1. Installs Argo CD from the pinned manifest/kustomization in
    `applications/bootstrap/argocd/`.
 2. Applies the root Application (`applications/bootstrap/root.yaml`) pointing
-   Argo CD at this repository's `applications/` tree.
+   Argo CD at this repository's `applications/` tree — Argo CD's
+   [app-of-apps pattern](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/).
 3. Waits for the root app to reach `Synced/Healthy` and prints the Argo CD
    admin URL + initial credentials location.
 
@@ -77,13 +79,16 @@ applications/
 
 Each component directory is a Kustomize base with an accompanying Argo CD
 `Application` manifest picked up by the root app (directory-recurse or
-ApplicationSet — decided during implementation, recorded here). Sync waves
+[ApplicationSet](https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/)
+— decided during implementation, recorded here).
+[Sync waves](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
 order the system components (sealed-secrets and MetalLB before ingress,
 ingress before anything with an Ingress resource).
 
 ### Secrets
 
-Bitnami **sealed-secrets** (already named in the architecture doc):
+Bitnami [**sealed-secrets**](https://github.com/bitnami-labs/sealed-secrets)
+(already named in the architecture doc):
 
 - The controller deploys in wave 0 from `applications/system/sealed-secrets/`.
 - The sealing keypair is backed up once to a gitignored
@@ -94,7 +99,8 @@ Bitnami **sealed-secrets** (already named in the architecture doc):
 
 ### Version management
 
-Renovate already manages `versions.yaml` files. Extend
+[Renovate](https://docs.renovatebot.com/) already manages `versions.yaml`
+files. Extend
 [renovate.json](../../renovate.json) with managers for:
 
 - The Argo CD version in `applications/bootstrap/argocd/`.
@@ -107,7 +113,8 @@ minor/major require review.
 
 Add to the existing lint workflow: `kustomize build` over every
 kustomization under `applications/` (catches broken manifests before Argo CD
-does) and `kubeconform` for schema validation.
+does) and [kubeconform](https://github.com/yannh/kubeconform) for schema
+validation.
 
 ## Implementation plan
 

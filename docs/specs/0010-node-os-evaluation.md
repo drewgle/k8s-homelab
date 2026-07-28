@@ -7,7 +7,9 @@ over time; presentation
 ## Context
 
 The repo already contains the *mechanism* for comparing node operating
-systems — parallel `talos/` and `flatcar/` playbook trees sharing the same
+systems ([Talos Linux](https://www.talos.dev/) and
+[Flatcar Container Linux](https://www.flatcar.org/)) — parallel `talos/`
+and `flatcar/` playbook trees sharing the same
 vars, network, and IP ranges, with `remove-vms.yml` to swap between them —
 but no *evaluation*: no criteria, no recorded observations, no conclusion a
 reader could act on. "Evaluate how they are managed over time" needs a
@@ -28,7 +30,9 @@ one person's head.
 
 ## Non-goals
 
-- Evaluating additional distros (k3OS is dead, Bottlerocket is
+- Evaluating additional distros
+  ([k3OS](https://github.com/rancher/k3os) is dead — the repo is archived —
+  and [Bottlerocket](https://github.com/bottlerocket-os/bottlerocket) is
   AWS-oriented). The *structure* should allow a third tree, but none is
   planned.
 - Performance benchmarking — differences that matter in a homelab are
@@ -54,9 +58,9 @@ accumulates:
 |-----------|------------------|
 | Provisioning effort | Playbook complexity, boot-to-cluster time, failure modes during 01/02 playbooks |
 | Upgrade experience | OS + Kubernetes upgrades: steps, duration, failure recovery (`talos/upgrade.yml` vs `flatcar/update.yml`) |
-| Automatic updates | Unattended update story (Flatcar update_engine groups vs Talos + Renovate soak policy) |
+| Automatic updates | Unattended update story (Flatcar [update_engine groups](https://www.flatcar.org/docs/latest/setup/releases/update-strategies/) vs Talos + Renovate soak policy) |
 | Debuggability | What it takes to answer "why is this node unhealthy" with no SSH (Talos) vs SSH (Flatcar) |
-| Configuration model | Machine config API vs Ignition/cloud-init; drift behavior after manual changes |
+| Configuration model | [Machine config API](https://www.talos.dev/v1.7/reference/configuration/) vs [Ignition](https://coreos.github.io/ignition/)/cloud-init; drift behavior after manual changes |
 | Ecosystem & docs | Upstream docs quality, community, issue turnaround |
 | Security posture | Attack surface, patch latency, defaults |
 | Automation fit | How well each fits Ansible + Renovate + GitOps (e.g. version pinning in `versions.yaml`) |

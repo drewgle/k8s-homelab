@@ -26,7 +26,7 @@ k8s-homelab/
 │   │       ├── flatcar/          # Flatcar VM + kubeadm cluster lifecycle
 │   │       └── remove-vms.yml    # Tear down Talos or Flatcar VMs
 │   └── linux/
-│       ├── proxmox/              # Bare-metal PVE auto-install (USB + autopve)
+│       ├── proxmox/              # Bare-metal PVE auto-install (answer on USB partition)
 │       ├── talos/                # Talos machine config templates + versions
 │       └── flatcar/              # Flatcar ignition/cloud-init templates + versions
 ├── applications/                 # Application deployments (planned)

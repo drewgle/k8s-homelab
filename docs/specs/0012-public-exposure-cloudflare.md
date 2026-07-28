@@ -41,8 +41,11 @@ public looks like.
 
 ### Cloudflare Tunnel (cloudflared)
 
-A `cloudflared` Deployment (2 replicas) in the cluster maintains
-outbound-only connections to Cloudflare's edge. Public hostnames map through
+A [`cloudflared` Deployment](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/deployment-guides/kubernetes/)
+(2 replicas) in the cluster maintains outbound-only connections to
+Cloudflare's edge (see the
+[Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)).
+Public hostnames map through
 the tunnel to in-cluster services. This is the piece that keeps the router
 closed: Cloudflare terminates public TLS at the edge and delivers traffic
 down the established tunnel.
@@ -60,7 +63,9 @@ down the established tunnel.
 
 ### DNS
 
-Each public hostname gets a proxied (orange-cloud) CNAME to the tunnel's
+Each public hostname gets a
+[proxied (orange-cloud) CNAME](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/routing-to-tunnel/dns/)
+to the tunnel's
 `<tunnel-id>.cfargotunnel.com` address. Created via the tunnel ingress
 config (`cloudflared` manages the records) or committed Terraform-free via
 the same ConfigMap — implementation decides, spec updated with the outcome.
@@ -70,7 +75,8 @@ in the public zone (spec 0009's split-horizon rule).
 
 ### Access control
 
-- **Cloudflare Access** in front of any public service that has no strong
+- [**Cloudflare Access**](https://developers.cloudflare.com/cloudflare-one/policies/access/)
+  in front of any public service that has no strong
   built-in auth: SSO gate at the edge (email OTP / GitHub login), policies
   declared alongside the tunnel config. Free tier covers homelab scale.
 - Services with real auth of their own may opt out of Access, recorded in

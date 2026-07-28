@@ -13,7 +13,8 @@ Provides replicated block storage across the PVE nodes for VM disks and,
 later, Kubernetes persistent volumes (spec
 [0008](0008-kubernetes-storage.md)). `04-ceph-deploy.yml` chains common →
 cluster-init → osd-add → status; `ceph-expand.yml` chains common → add-node
-→ osd-add → status for growth. All Ceph management goes through `pveceph`,
+→ osd-add → status for growth. All Ceph management goes through
+[`pveceph`](https://pve.proxmox.com/wiki/Deploy_Hyper-Converged_Ceph_Cluster),
 Proxmox's supported tooling, so the cluster is fully visible in the PVE web
 UI's Ceph panel.
 
@@ -27,15 +28,19 @@ UI's Ceph panel.
   (default `192.168.1.0/24`) and `ceph_cluster_network` (default
   `10.0.1.0/24`), applied via `pveceph init`. The configuration lives in
   `/etc/pve/ceph.conf` and is therefore identical on every node by
-  construction (Proxmox cluster filesystem).
+  construction
+  ([Proxmox cluster filesystem](https://pve.proxmox.com/wiki/Proxmox_Cluster_File_System_%28pmxcfs%29)).
 - **CEPH-04** Cluster credentials are managed by `pveceph` in `/etc/pve`
   (pmxcfs-replicated); the playbooks MUST NOT copy keyrings by hand.
 - **CEPH-05** A default `rbd` pool exists with the RBD application,
-  `size 3` / `min_size 2` (data survives one node loss and stays writable),
-  autoscaled placement groups, and is registered as a Proxmox storage entry
+  [`size 3` / `min_size 2`](https://docs.ceph.com/en/latest/rados/operations/pools/)
+  (data survives one node loss and stays writable),
+  [autoscaled placement groups](https://docs.ceph.com/en/latest/rados/operations/placement-groups/),
+  and is registered as a Proxmox storage entry
   (`pveceph pool create --add_storages`).
 - **CEPH-06** OSD candidacy: every whole disk that is exactly not `sda`, is
-  unmounted, and is not already a Ceph device (`ceph-volume lvm list`) is
+  unmounted, and is not already a Ceph device
+  ([`ceph-volume lvm list`](https://docs.ceph.com/en/latest/ceph-volume/)) is
   claimed via `pveceph osd create`. **This is destructive by design** — the
   OS lives on `sda` only (BMP-06), and any other disk attached to a node is
   Ceph's.

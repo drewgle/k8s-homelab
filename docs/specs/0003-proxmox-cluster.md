@@ -7,8 +7,10 @@
 
 ## Context
 
-Joins the standalone PVE nodes into one corosync-backed cluster so VMs can
-migrate between nodes and the web UI manages everything from any node.
+Joins the standalone PVE nodes into one
+[corosync](https://corosync.github.io/corosync/)-backed cluster (see the
+[PVE Cluster Manager docs](https://pve.proxmox.com/wiki/Cluster_Manager)) so
+VMs can migrate between nodes and the web UI manages everything from any node.
 `03-cluster-create.yml` is one-shot cluster formation; `cluster-add-node.yml`
 grows an existing cluster.
 
@@ -34,7 +36,9 @@ grows an existing cluster.
   and exit cleanly when there is nothing to do.
 - **CLU-07** Quorum expectations: a 2-node cluster cannot survive a node
   loss (no majority). The supported steady state is an odd number of votes —
-  3+ nodes, or 2 nodes plus a QDevice (not automated here).
+  3+ nodes, or 2 nodes plus a
+  [QDevice](https://pve.proxmox.com/wiki/Cluster_Manager#_corosync_external_vote_support)
+  (not automated here).
 
 ## Interfaces
 
@@ -60,4 +64,5 @@ Consumes: `proxmox_cluster_name`, optional `proxmox_cluster_network`
   the play continues) — a partially formed cluster is possible and only
   visible in the output/acceptance checks.
 - Removing a node from the cluster is not automated (Proxmox makes departed
-  node names sticky; manual `pvecm delnode` per the official docs).
+  node names sticky; manual `pvecm delnode` per the
+  [official docs](https://pve.proxmox.com/wiki/Cluster_Manager#pvecm_remove_node)).

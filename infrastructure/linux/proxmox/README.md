@@ -4,28 +4,31 @@ Turn a blank machine into an Ansible-ready Proxmox VE node with nothing but a
 USB stick: boot it, walk away, and ~10 minutes later the node is on its static
 management IP with root SSH keys installed. Built on Proxmox's official
 [Automated Installation](https://pve.proxmox.com/wiki/Automated_Installation)
-plus [autopve](https://github.com/natankeddem/autopve) as the answer server.
+in `partition` fetch mode — the answer file rides on the USB stick itself.
 
 ## How It Works
 
 ```
-USB (prepared ISO) ──boot──> installer DHCPs, POSTs system info ──> autopve
-                                                                      │ matches node by MAC/serial
-                             unattended install <── answer.toml ──────┘
-                                    │
-                             reboots onto static IP, root SSH keys installed
-                                    │
-                             ansible-playbook playbooks/proxmox/01-initial-setup.yml   (no -k!)
+USB stick
+├── prepared ISO (generic)      ──boot──> installer reads answer.toml from
+└── PROXMOX-AIS partition                 the PROXMOX-AIS partition
+    └── answer.toml (per-node)                 │
+                                    unattended install
+                                          │
+                                   reboots onto static IP, root SSH keys installed
+                                          │
+                                   ansible-playbook playbooks/proxmox/01-initial-setup.yml   (no -k!)
 ```
 
-- The prepared ISO is **generic** — it only bakes in the autopve URL
-  (`autoinstall_url` in `vars.yml`). One stick serves every node, including
-  future ones.
-- Because the URL is a DNS name, moving autopve later (e.g. onto the cluster
-  itself) is just a DNS repoint — the USB keeps working unchanged.
-- Per-node identity (hostname, static IP) lives in autopve answers, whose
-  content is rendered from this repo's `inventory.yaml` + `vars.yml` so the
-  repo stays the source of truth.
+- The prepared ISO is **generic** — it bakes in nothing node-specific, not
+  even a URL. One image serves every node, including future ones.
+- Per-node identity (hostname, static IP) lives in the `answer.toml` written
+  to the stick's `PROXMOX-AIS` partition, rendered from this repo's
+  `inventory.yaml` + `vars.yml` so the repo stays the source of truth.
+- Retargeting the stick to another node means rewriting only the small answer
+  partition — the ISO is never rebuilt.
+- No answer server and no network dependency at install time: the static
+  network configuration comes from the answer itself.
 
 ## Prerequisites
 
@@ -34,14 +37,9 @@ USB (prepared ISO) ──boot──> installer DHCPs, POSTs system info ──> 
   container) and Python **passlib** for password hashing
   (`pipx inject ansible passlib`, `pip install passlib`, or
   `apt install python3-passlib`, depending on how Ansible is installed).
-- autopve reachable (default: `https://proxmox-answers.internal.bluespeed.info/`).
-- DHCP available on the management LAN — the installer needs a temporary
-  address to fetch its answer before it configures the static one.
 - `vars.yml` filled in: `github_username`, `domain_name`, `timezone`,
   `dns_servers`, plus the auto-install block (`mgmt_gateway`,
-  `mgmt_cidr_bits`, `root_mailto`, `pve_country`, `pve_keyboard`,
-  `autoinstall_url`, optional `autoinstall_cert_fingerprint` — only needed
-  when the autopve TLS certificate is not publicly trusted).
+  `mgmt_cidr_bits`, `root_mailto`, `pve_country`, `pve_keyboard`).
 
 ## 1. Render and Validate Answer Files
 
@@ -53,29 +51,11 @@ ansible-playbook playbooks/bootstrap/01-render-answers.yml
 
 Prompts once for the root password to set on the new nodes (only its sha512
 hash is written, and only under the gitignored `generated/` directory). It
-renders into `infrastructure/linux/proxmox/generated/answers/`:
+renders one complete answer per node into
+`infrastructure/linux/proxmox/generated/answers/` (`pve1.toml`, `pve2.toml`,
+...), each validated by `proxmox-auto-install-assistant validate-answer`.
 
-| File | Purpose |
-|------|---------|
-| `default.toml` | Shared settings — paste into autopve's **Default** answer |
-| `<node>.toml` (e.g. `pve1.toml`) | Per-node overrides (fqdn + network) — paste into that node's autopve answer |
-| `<node>-full.toml` | Complete merged answer, validated by `proxmox-auto-install-assistant validate-answer` (autopve never sees these) |
-
-## 2. Configure autopve
-
-1. Open autopve and paste `default.toml` into the **Default** answer.
-2. Create an answer named for each node (`pve1`, `pve2`, `pve3`) containing
-   that node's `<node>.toml` content. autopve inherits everything else from
-   Default.
-3. Give each answer a match rule on the node's MAC address or DMI serial.
-
-**Don't know a node's MAC/serial?** Boot it from the USB once — autopve logs
-every incoming request with the full system information the installer POSTs.
-Copy the identifier into a new answer and boot the node again. This is also
-the workflow for adding future nodes (pve4, pve5, ...): add the host to
-`inventory.yaml`, re-run the render playbook, create the autopve answer, boot.
-
-## 3. Build the USB Image
+## 2. Build the USB Image
 
 ```bash
 ansible-playbook playbooks/bootstrap/02-build-iso.yml
@@ -83,11 +63,11 @@ ansible-playbook playbooks/bootstrap/02-build-iso.yml
 
 Downloads the Proxmox ISO pinned in [versions.yaml](versions.yaml) (sha256
 verified — the download is skipped when the file is already present and
-intact), then bakes in the autopve URL with `prepare-iso` and prints an
+intact), then prepares it with `--fetch-from partition` and prints an
 `inspect-iso` summary. Output:
 `infrastructure/linux/proxmox/generated/proxmox-ve_<version>-auto.iso`
 
-## 4. Write the USB Stick (manual, destructive)
+## 3. Write the USB Stick (manual, destructive)
 
 Double-check the device name — this erases it:
 
@@ -100,6 +80,31 @@ sudo dd if=infrastructure/linux/proxmox/generated/proxmox-ve_<version>-auto.iso 
 GUI alternatives: USBImager or balenaEtcher. If you use Rufus on Windows,
 you **must** choose "DD Image mode" when prompted — the prepared ISO is a
 hybrid image and Rufus's default ISO-extraction mode breaks it.
+
+## 4. Write the Answer Partition (per node)
+
+The installer looks for a partition labeled `proxmox-ais` (case-insensitive)
+containing `answer.toml` at its root. Append one in the free space after the
+ISO image and drop the target node's answer onto it:
+
+```bash
+sudo sgdisk -e -n 0:0:+16M -c 0:proxmox-ais /dev/sdX   # append a 16 MB partition
+sudo partprobe /dev/sdX
+lsblk /dev/sdX                                          # note the new partition, e.g. /dev/sdX3
+sudo mkfs.vfat -F 32 -n PROXMOX-AIS /dev/sdX3
+sudo mount /dev/sdX3 /mnt
+sudo cp infrastructure/linux/proxmox/generated/answers/pve1.toml /mnt/answer.toml
+sudo umount /mnt
+```
+
+**This is the only step that repeats per node.** Installing pve2 next? Mount
+the partition again and replace `answer.toml` with `pve2.toml` — no dd, no
+rebuild. Adding future nodes (pve4, pve5, ...) is the same flow: add the host
+to `inventory.yaml`, re-run the render playbook, rewrite the answer partition.
+
+> The stick is now node-specific: it installs whichever identity is in
+> `answer.toml`, on whatever machine you boot from it. Write the partition
+> immediately before each install and double-check which node it targets.
 
 ## 5. Boot the Node
 
@@ -126,7 +131,5 @@ unnecessary.
   Renovate datasource exists for Proxmox ISOs).
 - **Secrets**: rendered answers contain the root password *hash* and public
   SSH keys only, and live exclusively under the gitignored `generated/`.
-  Never commit them; treat autopve's answer store with the same care.
-- **Future**: once the Kubernetes cluster is up, run a copy of autopve on it
-  (under `applications/`), migrate the answers, and repoint the
-  `proxmox-answers` DNS record. No ISO rebuild required.
+  Never commit them; the copy on the USB answer partition is unencrypted, so
+  wipe or rewrite that partition once installs are done.

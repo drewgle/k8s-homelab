@@ -43,14 +43,16 @@ Sync-wave ordered components under `applications/system/`:
 
 ### MetalLB (wave 1)
 
-- L2 mode on the VM VLAN. Address pool carved from `vm_subnet` outside the
+- [L2 mode](https://metallb.io/concepts/layer2/) on the VM VLAN. Address
+  pool carved from `vm_subnet` outside the
   node range, e.g. `192.168.100.240–192.168.100.250`, defined next to the
   other network values in `vars.yml.example` and mirrored in the manifest
   (single source documented as the manifest; vars.yml comment points to it).
 
 ### ingress-nginx (wave 2)
 
-- Single controller, `LoadBalancer` service taking the first MetalLB IP.
+- Single [ingress-nginx](https://kubernetes.github.io/ingress-nginx/)
+  controller, `LoadBalancer` service taking the first MetalLB IP.
 - Default ingress class `nginx`.
 
 ### Domain prerequisite
@@ -64,22 +66,26 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 
 ### cert-manager (wave 2)
 
-- ACME `ClusterIssuer` against Let's Encrypt using the **DNS-01** solver with
-  the Cloudflare API. DNS-01 (rather than HTTP-01) is what lets *private*,
+- ACME `ClusterIssuer` against Let's Encrypt using the
+  [**DNS-01** solver with the Cloudflare API](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/).
+  DNS-01 (rather than HTTP-01) is what lets *private*,
   LAN-only services get real certificates: the challenge is answered with a
   TXT record in the public Cloudflare zone, so nothing needs to be reachable
   from the internet and no inbound port opens.
-- Two issuers: `letsencrypt-staging` (default during bring-up, avoids prod
-  rate limits) and `letsencrypt-prod`.
-- Cloudflare API token scoped to `Zone:DNS:Edit` on this one zone only,
-  stored as a SealedSecret.
+- Two issuers: `letsencrypt-staging` (default during bring-up per the
+  [staging-environment guidance](https://letsencrypt.org/docs/staging-environment/),
+  avoids prod [rate limits](https://letsencrypt.org/docs/rate-limits/)) and
+  `letsencrypt-prod`.
+- [Cloudflare API token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
+  scoped to `Zone:DNS:Edit` on this one zone only, stored as a SealedSecret.
 - One wildcard `Certificate` for `*.internal.<domain>` in the ingress
   namespace, referenced as the ingress controller's default TLS secret —
   individual apps then need no cert annotations at all. Per-app certs remain
   possible where isolation matters.
 - Note for newcomers, documented in the component README: wildcard + DNS-01
-  also avoids leaking every internal hostname into the public Certificate
-  Transparency logs, which per-name certs would do.
+  also avoids leaking every internal hostname into the public
+  [Certificate Transparency logs](https://letsencrypt.org/docs/ct-logs/),
+  which per-name certs would do.
 
 ### DNS for services
 
@@ -88,23 +94,28 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
   operator-specific, documented as a prerequisite). No public A/AAAA records
   exist for private services; the public zone carries only the ACME TXT
   challenges (transient) and whatever spec 0012 adds for public services.
-- external-dns is deliberately deferred; revisit if record count grows.
+- [external-dns](https://github.com/kubernetes-sigs/external-dns) is
+  deliberately deferred; revisit if record count grows.
 
 ### kube-prometheus-stack (wave 3)
 
-- Helm chart via Kustomize: Prometheus, Grafana, Alertmanager,
-  node-exporter, kube-state-metrics.
+- [Helm chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+  via Kustomize: Prometheus, Grafana, Alertmanager, node-exporter,
+  kube-state-metrics.
 - Persistence on the `ceph-rbd` StorageClass (spec 0008); retention sized
   for homelab (e.g. 15 days / 20 GiB).
 - Grafana behind ingress with a cert-manager certificate; admin password as
   a SealedSecret.
-- Scrape the Proxmox hosts too (pve-exporter) — ties the k8s and
+- Scrape the Proxmox hosts too
+  ([pve-exporter](https://github.com/prometheus-pve/prometheus-pve-exporter))
+  — ties the k8s and
   infrastructure learning together and gives the presentation a
   full-stack dashboard.
 
 ### Loki + Promtail (wave 3)
 
-- Single-binary Loki mode with `ceph-rbd` persistence; Promtail DaemonSet.
+- Single-binary [Loki](https://grafana.com/docs/loki/latest/) mode with
+  `ceph-rbd` persistence; Promtail DaemonSet.
 - Grafana datasource pre-provisioned.
 
 ### Argo CD ingress (wave 4)
@@ -144,7 +155,9 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 
 ## Open questions
 
-- Cilium's built-in L2 announcements could replace MetalLB when
+- Cilium's built-in
+  [L2 announcements](https://docs.cilium.io/en/stable/network/l2-announcements/)
+  could replace MetalLB when
   `kubernetes_cni: cilium` — evaluate during the distro/CNI evaluation
   rather than blocking this spec; MetalLB works with both CNIs.
 - Whether Alertmanager should notify anywhere at all in a homelab, or

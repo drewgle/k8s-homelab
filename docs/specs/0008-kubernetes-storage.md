@@ -26,17 +26,18 @@ Ceph cluster to Kubernetes instead.
 
 - CephFS / RWX volumes and object storage (RGW) — revisit when a workload
   needs them.
-- Volume snapshots and backup (belongs to a future Velero/backup spec).
+- Volume snapshots and backup (belongs to a future
+  [Velero](https://velero.io/)/backup spec).
 - Longhorn — explicitly rejected, see below.
 
 ## Options considered
 
 | Option | How it works | Trade-offs |
 |--------|--------------|------------|
-| **proxmox-csi-plugin** (recommended) | Talks to the Proxmox API (port 8006); PVs are Proxmox-managed disks on any PVE storage, including the Ceph pool | Only needs API reachability from the VM VLAN to the management network; volumes visible as disks in the PVE UI; topology-aware placement |
-| ceph-csi (RBD, external cluster) | Pods talk directly to Ceph mons/OSDs (ports 3300/6789 + OSD range) | More Ceph learning surface, but requires routing the VM VLAN into the Ceph public network — a wider firewall opening than a single API port |
-| Rook (managed Ceph in-cluster) | Runs its own Ceph cluster inside Kubernetes | Duplicates the existing Ceph investment; heavyweight for a homelab |
-| Longhorn | Replicated storage over VM disks | Replication-on-replication over Ceph-backed disks; ignores the Ceph learning goal |
+| [**proxmox-csi-plugin**](https://github.com/sergelogvinov/proxmox-csi-plugin) (recommended) | Talks to the Proxmox API (port 8006); PVs are Proxmox-managed disks on any PVE storage, including the Ceph pool | Only needs API reachability from the VM VLAN to the management network; volumes visible as disks in the PVE UI; topology-aware placement |
+| [ceph-csi](https://github.com/ceph/ceph-csi) (RBD, external cluster) | Pods talk directly to Ceph mons/OSDs (ports 3300/6789 + OSD range) | More Ceph learning surface, but requires routing the VM VLAN into the Ceph public network — a wider firewall opening than a single API port |
+| [Rook](https://rook.io/) (managed Ceph in-cluster) | Runs its own Ceph cluster inside Kubernetes | Duplicates the existing Ceph investment; heavyweight for a homelab |
+| [Longhorn](https://longhorn.io/) | Replicated storage over VM disks | Replication-on-replication over Ceph-backed disks; ignores the Ceph learning goal |
 
 **Recommendation: proxmox-csi-plugin.** Smallest network exposure (one API
 endpoint instead of the whole Ceph public network), reuses the existing pool,
@@ -47,12 +48,15 @@ should be re-validated during implementation and this spec updated.
 ## Design
 
 - `applications/system/storage/` contains the CSI driver (Helm chart via
-  Kustomize) plus StorageClasses:
+  Kustomize) plus
+  [StorageClasses](https://kubernetes.io/docs/concepts/storage/storage-classes/):
   - `ceph-rbd` (default): the Ceph pool, `ReclaimPolicy: Delete`.
   - `ceph-rbd-retain`: same pool, `Retain`, for data that must survive
     accidental PVC deletion.
-- A dedicated, least-privilege PVE API token for the CSI driver (VM.Audit,
-  Datastore.Allocate on the Ceph storage only), stored as a SealedSecret.
+- A dedicated, least-privilege
+  [PVE API token](https://pve.proxmox.com/wiki/User_Management) for the CSI
+  driver (VM.Audit, Datastore.Allocate on the Ceph storage only), stored as
+  a SealedSecret.
 - Network prerequisite: the VM VLAN (`vm_subnet`) must reach the management
   network on TCP 8006 only. Documented in
   [NETWORK.md](../../infrastructure/linux/talos/NETWORK.md) and enforced no

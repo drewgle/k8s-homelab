@@ -15,19 +15,11 @@
     iso_file: "proxmox-ve_{{ iso_version }}.iso"
     iso_auto_file: "proxmox-ve_{{ iso_version }}-auto.iso"
     docker_user: "{{ lookup('pipe', 'id -u') }}:{{ lookup('pipe', 'id -g') }}"
-    cert_fingerprint_arg: >-
-      {{ ('--cert-fingerprint ' + autoinstall_cert_fingerprint)
-         if (autoinstall_cert_fingerprint | default('') | length > 0) else '' }}
 
   tasks:
     - name: Verify Docker is available
       command: docker version
       changed_when: false
-
-    - name: Verify autoinstall_url is configured
-      assert:
-        that: autoinstall_url is defined and autoinstall_url | length > 0
-        fail_msg: "Set autoinstall_url in vars.yml (the autopve /answer endpoint)"
 
     - name: Ensure generated directory exists
       file:
@@ -52,16 +44,14 @@
         path: "{{ generated_dir }}/{{ iso_auto_file }}"
         state: absent
 
-    - name: Prepare auto-install ISO pointing at autopve
+    - name: Prepare auto-install ISO that reads its answer from the proxmox-ais partition
       command: >
         docker run --rm
         --user {{ docker_user }}
         -v {{ generated_dir }}:/work
         pve-autoinstall-assistant
         proxmox-auto-install-assistant prepare-iso /work/{{ iso_file }}
-        --fetch-from http
-        --url {{ autoinstall_url }}
-        {{ cert_fingerprint_arg }}
+        --fetch-from partition
         --output /work/{{ iso_auto_file }}
 
     - name: Inspect prepared ISO
@@ -80,3 +70,5 @@
           - "{{ iso_inspect.stdout_lines }}"
           - "Write it to USB (destructive - double-check the device!):"
           - "  sudo dd if={{ generated_dir }}/{{ iso_auto_file }} of=/dev/sdX bs=4M conv=fsync status=progress"
+          - "Then add the PROXMOX-AIS answer partition with the target node's"
+          - "answer.toml - see infrastructure/linux/proxmox/README.md"

@@ -15,23 +15,28 @@ in `site.yml`.
 ## Requirements
 
 - **INIT-01** Root SSH access MUST be key-based after the first run: all
-  public keys from `https://github.com/{{ github_username }}.keys` (filtered
+  public keys from `https://github.com/{{ github_username }}.keys` (GitHub's
+  [public-key endpoint](https://docs.github.com/en/rest/users/keys), filtered
   to `ssh-rsa`/`ssh-ed25519`/`ecdsa-*`) are installed for root. Manual
   installs use `-k` for the first run only; auto-installed nodes (BMP-05)
   never need it.
 - **INIT-02** Repository configuration MUST be release-agnostic: the
-  `pve-no-subscription` suite is derived from the node's detected Debian
-  codename (`ansible_distribution_release`), never hardcoded.
+  [`pve-no-subscription`](https://pve.proxmox.com/wiki/Package_Repositories)
+  suite is derived from the node's detected Debian codename
+  (`ansible_distribution_release`), never hardcoded.
 - **INIT-03** All enterprise repositories MUST be disabled, in both formats:
-  one-line `.list` entries (PVE 7/8) are commented out and deb822 `.sources`
-  stanzas (PVE 9+) get `Enabled: false`. Discovery is by content match on
-  `enterprise.proxmox.com`, so the Ceph enterprise repo is covered too.
+  one-line `.list` entries (PVE 7/8) are commented out and
+  [deb822](https://manpages.debian.org/stable/apt/sources.list.5.en.html)
+  `.sources` stanzas (PVE 9+) get `Enabled: false`. Discovery is by content
+  match on `enterprise.proxmox.com`, so the Ceph enterprise repo is covered
+  too.
 - **INIT-04** The playbook MUST own `pve-no-subscription.list` outright
   (full-file write), so stale suite lines from earlier runs self-repair.
 - **INIT-05** The subscription-nag dialog MUST be disabled by rewriting the
   `.data.status.toLowerCase() !== 'active'` check in `proxmoxlib.js`, and the
   patch MUST survive `proxmox-widget-toolkit` upgrades via a
-  `DPkg::Post-Invoke` hook (`/etc/apt/apt.conf.d/no-nag-script`).
+  [`DPkg::Post-Invoke`](https://manpages.debian.org/stable/apt/apt.conf.5.en.html)
+  hook (`/etc/apt/apt.conf.d/no-nag-script`).
 - **INIT-06** If the nag pattern is not found (widget-toolkit changed shape),
   the run MUST surface a visible warning rather than fail or stay silent.
 - **INIT-07** The node MUST end fully dist-upgraded with the baseline package

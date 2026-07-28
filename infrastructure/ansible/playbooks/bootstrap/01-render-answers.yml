@@ -1,5 +1,5 @@
 ---
-- name: Render Proxmox auto-install answer files for autopve
+- name: Render Proxmox auto-install answer files
   hosts: localhost
   become: no
   gather_facts: no
@@ -43,32 +43,12 @@
         state: directory
         mode: '0700'
 
-    - name: Render shared answer for autopve's Default answer
-      template:
-        src: "{{ answer_template }}"
-        dest: "{{ answers_dir }}/default.toml"
-        mode: '0600'
-      vars:
-        render_mode: default
-
-    - name: Render per-node override answers for autopve
+    - name: Render complete per-node answers
       template:
         src: "{{ answer_template }}"
         dest: "{{ answers_dir }}/{{ item }}.toml"
         mode: '0600'
       vars:
-        render_mode: node
-        node_fqdn: "{{ item }}.{{ domain_name }}"
-        node_cidr: "{{ hostvars[item]['ansible_host'] }}/{{ mgmt_cidr_bits | default('24') }}"
-      loop: "{{ groups['proxmox'] }}"
-
-    - name: Render complete per-node answers for validation
-      template:
-        src: "{{ answer_template }}"
-        dest: "{{ answers_dir }}/{{ item }}-full.toml"
-        mode: '0600'
-      vars:
-        render_mode: full
         node_fqdn: "{{ item }}.{{ domain_name }}"
         node_cidr: "{{ hostvars[item]['ansible_host'] }}/{{ mgmt_cidr_bits | default('24') }}"
       loop: "{{ groups['proxmox'] }}"
@@ -77,12 +57,12 @@
       command: docker build -t pve-autoinstall-assistant {{ proxmox_dir }}/autoinstall
       changed_when: false
 
-    - name: Validate complete answers with proxmox-auto-install-assistant
+    - name: Validate answers with proxmox-auto-install-assistant
       command: >
         docker run --rm
         -v {{ answers_dir }}:/answers:ro
         pve-autoinstall-assistant
-        proxmox-auto-install-assistant validate-answer /answers/{{ item }}-full.toml
+        proxmox-auto-install-assistant validate-answer /answers/{{ item }}.toml
       loop: "{{ groups['proxmox'] }}"
       changed_when: false
 
@@ -91,6 +71,6 @@
         msg:
           - "Answer files rendered and validated in {{ answers_dir }}"
           - "Next steps (see infrastructure/linux/proxmox/README.md):"
-          - "  1. Paste default.toml into autopve's Default answer at {{ autoinstall_url | regex_replace('/answer$', '') }}"
-          - "  2. Create one autopve answer per node from <node>.toml with a MAC/serial match rule"
-          - "  3. Run playbooks/bootstrap/02-build-iso.yml to build the USB image"
+          - "  1. Run playbooks/bootstrap/02-build-iso.yml to build the USB image"
+          - "  2. Write the ISO to USB, then write the target node's <node>.toml"
+          - "     to the PROXMOX-AIS answer partition as answer.toml"

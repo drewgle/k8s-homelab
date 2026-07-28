@@ -17,8 +17,10 @@ Talos and Flatcar provisioning playbooks so the node-OS evaluation (spec
 
 - **VMP-01** Both node OSes provision through the shared `proxmox_vm` role —
   bridge setup (`tasks/bridge.yml`) and VM create/start (`tasks/create.yml`).
-  OS-specific behavior is limited to ISO choice, cloud-init/ignition
-  snippets, and extra `qm create` args.
+  OS-specific behavior is limited to ISO choice,
+  [cloud-init](https://cloudinit.readthedocs.io/)/[Ignition](https://coreos.github.io/ignition/)
+  snippets, and extra
+  [`qm create`](https://pve.proxmox.com/pve-docs/qm.1.html) args.
 - **VMP-02** VM networking uses a VLAN-aware bridge (`vm_bridge_name`,
   default `vmbr1`) persisted in `/etc/network/interfaces` (managed block)
   and applied with `ifreload -a`; VM NICs are tagged with `vm_vlan_id`
@@ -43,8 +45,9 @@ Talos and Flatcar provisioning playbooks so the node-OS evaluation (spec
   confirmation unless `-e force=true`, destroy disks (`qm destroy --purge`),
   and clean up cloud-init/ignition snippets.
 - **VMP-09** Provisioning is only complete when each VM answers on its
-  OS-appropriate port: Talos maintenance API (50000/tcp) or Flatcar SSH
-  (22/tcp).
+  OS-appropriate port:
+  [Talos maintenance API](https://www.talos.dev/v1.7/learn-more/talos-network-connectivity/)
+  (50000/tcp) or Flatcar SSH (22/tcp).
 - **VMP-10** VM hardware baseline: q35 machine type, host CPU, virtio-scsi
   with iothread, serial console (`--serial0 socket --vga serial0`), QEMU
   guest agent enabled, `--onboot 1`.
@@ -54,8 +57,9 @@ Talos and Flatcar provisioning playbooks so the node-OS evaluation (spec
 Consumes: `vm_bridge_name`, `vm_vlan_id`, `vm_storage`, `vm_gateway`,
 `vm_subnet`, `vm_cidr_bits`, `vm_cp_*`/`vm_worker_*` sizing vars; per-host
 `vm_id`, `ansible_host`, optional `proxmox_node`. ISO versions come from
-`infrastructure/linux/{talos,flatcar}/versions.yaml` (Renovate-managed where
-a datasource exists).
+`infrastructure/linux/{talos,flatcar}/versions.yaml`
+([Renovate](https://docs.renovatebot.com/)-managed where a datasource
+exists).
 
 ## Acceptance criteria
 
@@ -77,5 +81,5 @@ a datasource exists).
   changes where re-created VMs land (existing VMs are untouched; a duplicate
   `vm_id` on another node fails loudly at `qm create`).
 - VM creation shells out to `qm` over SSH rather than using the
-  `community.general.proxmox_kvm` API module — a deliberate tradeoff to
-  avoid requiring Proxmox API tokens.
+  [`community.general.proxmox_kvm`](https://docs.ansible.com/ansible/latest/collections/community/general/proxmox_kvm_module.html)
+  API module — a deliberate tradeoff to avoid requiring Proxmox API tokens.

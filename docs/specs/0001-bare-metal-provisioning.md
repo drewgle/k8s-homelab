@@ -12,18 +12,23 @@ was a manual ISO walk-through. This spec covers the unattended path: boot a
 node from a USB stick and it comes up as a fully installed PVE node ready for
 `01-initial-setup.yml`, using Proxmox's official
 [Automated Installation](https://pve.proxmox.com/wiki/Automated_Installation)
-with [autopve](https://github.com/natankeddem/autopve) as the answer server
-(`https://proxmox-answers.internal.bluespeed.info/`).
+in `partition` fetch mode — the installer reads `answer.toml` from a FAT
+partition labeled `proxmox-ais` (matched case-insensitively) on the install
+medium itself. No answer server, no network dependency at install time; the
+repo is the end-to-end source of truth.
 
 ## Requirements
 
-- **BMP-01** The prepared ISO MUST be generic: it bakes in only the autopve
-  URL (`autoinstall_url`). One image serves every node, present and future.
-- **BMP-02** The baked URL MUST be a DNS name, so the answer server can move
-  (e.g. onto the cluster) with a DNS repoint and no ISO rebuild.
-- **BMP-03** Per-node identity (fqdn, static management IP) MUST be derived
-  from `inventory.yaml` + `vars.yml` — the repo is the source of truth even
-  though delivery happens through autopve's UI.
+- **BMP-01** The prepared ISO MUST be generic: it is prepared with
+  `--fetch-from partition` and bakes in nothing node-specific — not even a
+  URL. One image serves every node, present and future.
+- **BMP-02** The answer MUST be read from a partition labeled `proxmox-ais`
+  on the install USB, appended after the ISO image. The stick carries exactly
+  one node's complete answer at a time; retargeting the stick to another node
+  means rewriting only that partition, never the ISO.
+- **BMP-03** Per-node identity (fqdn, static management IP) MUST be rendered
+  from `inventory.yaml` + `vars.yml` into the node's complete answer file,
+  with no manual transfer step between the repo and the installer.
 - **BMP-04** The installer MUST set everything no playbook configures:
   hostname/FQDN, static management IP/gateway/DNS, timezone, locale, root
   password, and disk layout.
@@ -37,33 +42,37 @@ with [autopve](https://github.com/natankeddem/autopve) as the answer server
 - **BMP-08** The PVE ISO version and sha256 MUST be pinned in
   `infrastructure/linux/proxmox/versions.yaml`, and the download MUST fail
   hard on checksum mismatch.
-- **BMP-09** Rendered complete answers MUST pass
+- **BMP-09** Rendered answers MUST pass
   `proxmox-auto-install-assistant validate-answer` before use.
 
 ## Interfaces
 
 Consumes: `github_username`, `domain_name`, `timezone`, `dns_servers`,
 `mgmt_gateway`, `mgmt_cidr_bits`, `root_mailto`, `pve_country`,
-`pve_keyboard`, `autoinstall_url`, optional `autoinstall_cert_fingerprint`.
-Requires DHCP on the management LAN (the installer needs a temporary address
-to fetch its answer) and autopve reachable at install time.
+`pve_keyboard`. Requires nothing from the network at install time: the
+answer is on the stick and the static network configuration comes from the
+answer itself.
 
 ## Acceptance criteria
 
-- [ ] `01-render-answers.yml` renders `default.toml` + per-node files and the
+- [ ] `01-render-answers.yml` renders one complete answer per node and the
       built-in `validate-answer` step passes for every node.
 - [ ] `02-build-iso.yml` verifies the pinned sha256 and `inspect-iso` shows
-      the autopve URL.
-- [ ] A test VM (SCSI disk → `sda`, MAC registered in autopve) installs
-      unattended and `ansible <host> -m ping` succeeds with no `-k`.
-- [ ] A node with an unknown MAC appears in autopve's request log with enough
-      information to register it (the new-node onboarding path).
+      partition fetch mode.
+- [ ] A test VM (SCSI disk → `sda`, plus a small extra disk labeled
+      `proxmox-ais` carrying one node's `answer.toml`) installs unattended
+      and `ansible <host> -m ping` succeeds with no `-k`.
+- [ ] New-node onboarding: add the host to `inventory.yaml`, re-run the
+      render playbook, rewrite the answer partition, boot. No ISO rebuild.
 
 ## Known limitations
 
-- autopve configuration is UI-only: rendered answer content is pasted in
-  manually; there is no API-driven sync from the repo.
-- The answer is served over the LAN to anyone who POSTs matching system info;
-  it contains the password hash and public keys. Acceptable on a trusted
-  homelab LAN; run the answer server only during install windows.
-- Node matching (MAC/serial) lives in autopve, not in the repo.
+- The stick is node-specific at write time: booting the wrong machine from it
+  installs the wrong identity. Mitigated by the one-stick-at-a-time workflow
+  (write the answer partition immediately before each install).
+- The answer sits unencrypted on the USB partition and contains the root
+  password hash and public SSH keys; wipe or rewrite the partition once
+  installs are done.
+- There is no central request log of unknown nodes (the old answer-server
+  onboarding path). Node identity is chosen by which answer is written to the
+  stick, so MAC/serial matching no longer exists anywhere.

@@ -60,7 +60,9 @@ Workspace/Dropbox replacement promise unless those apps exist by then.
 - **Demo B (live, local):** GitOps loop against a pre-staged cluster —
   `git commit` a change to an app manifest, watch Argo CD reconcile it.
   Runs on a laptop-reachable homelab via VPN *with a recorded fallback*, or
-  entirely on a local kind/Talos-in-Docker cluster mirroring the repo.
+  entirely on a local [kind](https://kind.sigs.k8s.io/) /
+  [Talos-in-Docker](https://www.talos.dev/v1.7/talos-guides/install/local-platforms/docker/)
+  cluster mirroring the repo.
 - **Demo C (recorded):** the resilience money-shot — `remove-vms.yml`, full
   re-provision, Argo CD restores every workload. Time-lapse from spec 0007's
   rebuild acceptance test.
@@ -90,7 +92,8 @@ Timing adjustments recorded in outline.md.
 
 1. Revise abstract.md; write outline.md with speaker notes (can start now —
    sections 1–5 don't depend on the GitOps specs).
-2. Build slides skeleton; pick marp or reveal.js.
+2. Build slides skeleton; pick [Marp](https://marp.app/) or
+   [reveal.js](https://revealjs.com/).
 3. Record demo A during the next infrastructure rebuild.
 4. After specs 0007–0009 land: stage demo B, record demo C.
 5. Dry runs; final timing pass.
