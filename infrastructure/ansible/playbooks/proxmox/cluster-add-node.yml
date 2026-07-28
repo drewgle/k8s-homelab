@@ -93,16 +93,15 @@
       changed_when: false
 
     - name: Join new nodes to cluster
-      command: pvecm add {{ hostvars[existing_cluster_nodes[0]]['ansible_default_ipv4']['address'] }} --force
+      command: >-
+        pvecm add {{ hostvars[existing_cluster_nodes[0]]['ansible_default_ipv4']['address'] }}
+        --link0 {{ ansible_default_ipv4.address }}
       when: inventory_hostname in new_nodes
       register: cluster_join_result
-      failed_when: false
 
     - name: Display join results for each new node
       debug:
-        msg: |
-          Node {{ inventory_hostname }} join result:
-          {{ 'SUCCESS ✓' if cluster_join_result.rc == 0 else 'FAILED ✗ - ' + (cluster_join_result.stderr | default('unknown error')) }}
+        msg: "Node {{ inventory_hostname }} joined the cluster ✓"
       when:
         - inventory_hostname in new_nodes
         - cluster_join_result is defined

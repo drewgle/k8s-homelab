@@ -45,17 +45,20 @@ all:
       vars:
         ansible_connection: local  # Talos managed via talosctl, not SSH
 
-    # Flatcar Kubernetes cluster nodes (shares same IPs as Talos but different VMs)
+    # Flatcar Kubernetes cluster nodes. Addresses, VM IDs, pod/service CIDRs
+    # and cluster name are all distinct from Talos, so both stacks can run at
+    # the same time — spec 0010 compares them side by side rather than in
+    # alternating teardown cycles. Check capacity before running both.
     flatcar_controlplane:
       hosts:
         flatcar-cp-01:
-          ansible_host: 192.168.100.201
+          ansible_host: 192.168.100.221
           vm_id: 301
         flatcar-cp-02:
-          ansible_host: 192.168.100.202
+          ansible_host: 192.168.100.222
           vm_id: 302
         flatcar-cp-03:
-          ansible_host: 192.168.100.203
+          ansible_host: 192.168.100.223
           vm_id: 303
       vars:
         ansible_user: core
@@ -64,13 +67,13 @@ all:
     flatcar_worker:
       hosts:
         flatcar-worker-01:
-          ansible_host: 192.168.100.211
+          ansible_host: 192.168.100.231
           vm_id: 311
         flatcar-worker-02:
-          ansible_host: 192.168.100.212
+          ansible_host: 192.168.100.232
           vm_id: 312
         flatcar-worker-03:
-          ansible_host: 192.168.100.213
+          ansible_host: 192.168.100.233
           vm_id: 313
       vars:
         ansible_user: core

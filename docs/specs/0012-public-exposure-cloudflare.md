@@ -56,10 +56,11 @@ down the established tunnel.
   dashboard-managed), so the set of public hostnames is version-controlled
   and reviewable — this is the "explicit declaration" that makes a service
   public.
-- Traffic from cloudflared targets the existing ingress-nginx service, so
-  routing/middleware stays in one place; the tunnel hop to the ingress
-  controller uses the wildcard cert from spec 0009 (`noTLSVerify` stays
-  off).
+- Traffic from cloudflared targets the shared Envoy Gateway from spec 0009,
+  so routing stays in one place; the tunnel hop to the Gateway uses the
+  wildcard cert from spec 0009 (`noTLSVerify` stays off). A public service is
+  therefore an ordinary `HTTPRoute` that also happens to be named in the
+  tunnel config.
 
 ### DNS
 
@@ -91,7 +92,7 @@ point of confusion in this architecture:
 
 ```
 Browser ──TLS (Cloudflare edge cert)──▶ Cloudflare ──tunnel──▶ cloudflared
-        ──TLS (Let's Encrypt wildcard)──▶ ingress-nginx ──▶ Service
+        ──TLS (Let's Encrypt wildcard)──▶ Envoy Gateway ──▶ Service
 ```
 
 ### Promotion checklist (private → public)

@@ -36,9 +36,11 @@ ssh_port: 22
 # Optional: Fail2ban notification email
 fail2ban_email: "admin@homelab.local"
 
-# Optional: Custom firewall rules
-custom_firewall_ports:
-  - { port: 9090, protocol: tcp, comment: 'Custom Service' }
+# Optional: hosts allowed to manage the cluster (SSH, web UI, consoles,
+# live migration). Defaults to the Proxmox cluster network plus every node.
+# Getting this wrong locks you out — see "Firewall Configuration" below.
+firewall_management_sources:
+  - "192.168.1.0/24"
 ```
 
 ## Usage
@@ -106,32 +108,56 @@ ansible-playbook playbooks/proxmox/harden.yml -e @custom-security.yml
 - `/etc/ssh/sshd_config` - Main SSH configuration
 - Automatic backup created before changes
 
-### Firewall Configuration (UFW)
+### Firewall Configuration (Proxmox firewall)
 
-**Default Policies:**
+The built-in Proxmox firewall is the single managed firewall on these nodes.
+It runs on the nftables backend, its configuration lives in the cluster
+filesystem so every node sees the same rules, and it is visible and editable
+in the web UI. The playbook removes UFW if a previous run installed it, so
+the two can never double-filter.
 
-- Incoming: DENY (block all by default)
-- Outgoing: ALLOW (permit internal services)
-- Forwarding: DENY (restrict routing)
+**Managed files:**
 
-**Allowed Services:**
+| File | Scope | Rendered from |
+|------|-------|---------------|
+| `/etc/pve/firewall/cluster.fw` | datacenter: master switch, aliases, `management` IPSet | `templates/cluster.fw.j2` |
+| `/etc/pve/nodes/<node>/host.fw` | one node's host rules | `templates/host.fw.j2` |
 
-- SSH (22/tcp)
-- Proxmox Web UI (8006/tcp)
-- VNC Consoles (5900-5999/tcp)
-- Corosync Cluster (5404-5405/udp)
-- Ceph Services (if configured)
+**Default policies:**
 
-**Dynamic Rules:**
+- Host incoming: DROP — this is the firewall's behavior whenever it is
+  enabled; there is no `policy_in` key in `host.fw`.
+- Host outgoing: ACCEPT.
+- Guest (VM/CT) traffic: ACCEPT, set at the datacenter level. VM NICs are
+  created with `firewall=1`, so per-guest rules can be added later without
+  touching the hypervisor ruleset.
 
-- Cluster networks automatically allowed
-- Source-based restrictions for storage traffic
+**Allowed by Proxmox itself** — no rule needed, and restricted to the
+`management` IPSet:
 
-**Relationship to the Proxmox firewall:** UFW is the single managed firewall
-on these nodes. The playbook explicitly keeps the built-in Proxmox firewall
-disabled datacenter-wide (`/etc/pve/firewall/cluster.fw` with `enable: 0`) so
-the two never double-filter. Do not enable the PVE firewall in the web UI
-without removing UFW first.
+- SSH (22/tcp), web UI (8006/tcp), SPICE proxy (3128/tcp)
+- VNC consoles (5900-5999/tcp)
+- **Live migration (60000-60050/tcp)** — the UFW configuration this replaced
+  omitted these, which silently broke migration between nodes
+- Corosync (5405-5412/udp) between cluster members
+
+**Allowed by the rules this playbook writes:**
+
+- Ceph monitors (3300, 6789/tcp) and OSD/MGR/MDS (6800-7300/tcp), from the
+  `ceph_public` alias and, when it differs, the `ceph_cluster` alias
+- rpcbind (111/tcp+udp) from the `management` IPSet
+
+**Who counts as a management host:** the `management` IPSet is built from
+`firewall_management_sources` (defaults to the Proxmox cluster network) plus
+every node's `ansible_host`. Set it in `vars.yml` if you administer the
+cluster from a different subnet than the nodes live on — **if your
+workstation is not in this set you will lose SSH and web UI access.**
+
+```yaml
+firewall_management_sources:
+  - "192.168.1.0/24"     # management LAN
+  - "10.10.0.5"          # jump host
+```
 
 ### Fail2Ban Intrusion Prevention
 
@@ -224,7 +250,8 @@ without removing UFW first.
 The verification playbook `verify-hardening.yml` validates:
 
 - **SSH Configuration** - All hardening applied correctly
-- **Firewall Status** - UFW active with proper rules
+- **Firewall Status** - Proxmox firewall enabled/running, UFW absent, and
+  live migration present in the compiled ruleset
 - **Fail2Ban Operation** - Service running with active jails
 - **Kernel Parameters** - Security settings applied
 - **File Permissions** - Critical files properly protected
@@ -238,7 +265,8 @@ The verification playbook `verify-hardening.yml` validates:
 sshd -T | grep -E "passwordauth|pubkeyauth|permitroot"
 
 # Verify firewall rules
-ufw status verbose
+pve-firewall status
+pve-firewall compile          # the full ruleset, including Proxmox built-ins
 
 # Check fail2ban status
 fail2ban-client status
@@ -279,7 +307,7 @@ apt list --upgradable 2>/dev/null | grep security
 - Audit: `/var/log/audit/audit.log`
 - Authentication: `/var/log/auth.log`
 - Proxmox: `/var/log/pvedaemon.log`
-- Firewall: `/var/log/ufw.log`
+- Firewall: `/var/log/pve-firewall.log`
 
 ## Troubleshooting
 
@@ -300,14 +328,13 @@ systemctl restart ssh
 **Firewall Blocking Services:**
 
 ```bash
-# Check UFW logs
-tail -f /var/log/ufw.log
+# Check firewall logs (set log_level_in to "info" in host.fw to populate this)
+tail -f /var/log/pve-firewall.log
 
-# Temporarily allow service
-ufw allow [port]/[protocol]
+# Show the ruleset actually in force, built-ins included
+pve-firewall compile
 
-# Check current rules
-ufw status numbered
+# Add a rule permanently: edit templates/host.fw.j2 and re-run harden.yml
 ```
 
 **Fail2Ban Issues:**
@@ -341,10 +368,12 @@ systemctl restart fail2ban
 
 **Firewall Lockout:**
 
-1. Access via Proxmox console
-2. Disable UFW: `ufw --force disable`
-3. Fix configuration
-4. Re-enable: `ufw --force enable`
+1. Access via Proxmox console (physical/IPMI)
+2. Disable the firewall: `pve-firewall stop`, or set `enable: 0` in
+   `/etc/pve/nodes/<node>/host.fw`
+3. Fix `firewall_management_sources` in `vars.yml` — a lockout here almost
+   always means your workstation is outside the `management` IPSet
+4. Re-run `harden.yml`, then `pve-firewall start`
 
 ## Advanced Configuration
 
@@ -358,11 +387,6 @@ custom_sysctl_params:
   - { name: 'net.core.somaxconn', value: '65535' }
   - { name: 'vm.swappiness', value: '10' }
 
-# Additional firewall rules
-custom_firewall_rules:
-  - { port: 9100, protocol: tcp, comment: 'Prometheus Node Exporter' }
-  - { port: 3000, protocol: tcp, comment: 'Grafana Dashboard' }
-
 # Enhanced audit rules
 custom_audit_rules:
   - "-w /etc/hosts -p wa -k network-config"
@@ -373,12 +397,12 @@ custom_audit_rules:
 
 **Prometheus Integration:**
 
-```yaml
-# Add to firewall rules
-- { port: 9100, protocol: tcp, comment: 'Node Exporter' }
+Additional host ports are added by editing `templates/host.fw.j2` and
+re-running `harden.yml` — the ruleset is a rendered file, not a list of
+imperative rules. For a node exporter scraped from the Kubernetes VLAN:
 
-# Install node_exporter after hardening
-ansible-playbook monitoring/node-exporter.yml
+```
+IN ACCEPT -source 192.168.100.0/24 -p tcp -dport 9100 -log nolog # node_exporter
 ```
 
 **Log Aggregation:**

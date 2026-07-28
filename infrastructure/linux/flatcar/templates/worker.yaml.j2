@@ -72,7 +72,7 @@ storage:
             mode: Webhook
           cgroupDriver: systemd
           clusterDNS:
-            - {{ kubernetes_cluster_dns }}
+            - {{ flatcar_cluster_dns }}
           clusterDomain: {{ kubernetes_dns_domain }}
           cpuManagerReconcilePeriod: 0s
           evictionPressureTransitionPeriod: 0s

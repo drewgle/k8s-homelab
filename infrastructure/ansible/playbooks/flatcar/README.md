@@ -139,13 +139,17 @@ ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
 
 ## Network Configuration
 
-Flatcar and Talos VMs share the same network configuration:
+Flatcar and Talos VMs share the VLAN but nothing else:
 - **VLAN ID:** 100 (configurable via `vm_vlan_id`)
-- **IP Range:** 192.168.100.201-203 (control plane), 192.168.100.211-213 (workers)
+- **IP Range:** 192.168.100.221-223 (control plane), 192.168.100.231-233 (workers)
 - **Gateway:** 192.168.100.1 (configurable via `vm_gateway`)
 - **Bridge:** vmbr1 (configurable via `vm_bridge_name`)
+- **Pod / service CIDR:** 10.245.0.0/16 and 10.112.0.0/12
 
-**Important:** You can only run either Flatcar OR Talos VMs at the same time since they use the same IP addresses. Use the remove-vms.yml playbook to switch between them.
+Talos uses 192.168.100.201-213 with 10.244.0.0/16 and 10.96.0.0/12, so both
+clusters can run at the same time. Check RAM before doing that — the two
+default stacks together want 72GB. `remove-vms.yml -e vm_type=flatcar` drops
+this stack without touching Talos.
 
 ## Troubleshooting
 

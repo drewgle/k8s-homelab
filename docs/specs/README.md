@@ -12,7 +12,9 @@ to get there.
 
 ## Conventions
 
-- Files are numbered `NNNN-short-title.md` in rough implementation order.
+- Files are numbered `NNNN-short-title.md`. The number is allocation order,
+  not reading order — a spec written later for an already-built subsystem
+  keeps its high number and is placed in the index where it belongs.
 - Statuses: `Draft` → `Accepted` → `In progress` → `Done` (or `Superseded`).
   Specs for already-built subsystems use `Implemented`: they record the
   *current intended behavior* — a change that violates one of their numbered
@@ -26,6 +28,8 @@ to get there.
 
 ## Index
 
+In dependency order, bottom of the stack first:
+
 | Spec | Title | Status | Serves goals |
 |------|-------|--------|--------------|
 | [0001](0001-bare-metal-provisioning.md) | Bare-metal Proxmox provisioning | Implemented | Learning (proxmox, ansible) |
@@ -34,12 +38,16 @@ to get there.
 | [0004](0004-ceph-storage.md) | Ceph distributed storage | Implemented | Learning (ceph, proxmox) |
 | [0005](0005-node-hardening.md) | Node security hardening | Implemented | Learning (proxmox, security) |
 | [0006](0006-vm-platform.md) | VM platform for Kubernetes clusters | Implemented | Learning, distro evaluation |
+| [0013](0013-talos-cluster-lifecycle.md) | Talos Kubernetes cluster lifecycle | Implemented | Learning (k8s, talos), distro evaluation |
+| [0014](0014-flatcar-cluster-lifecycle.md) | Flatcar Kubernetes cluster lifecycle | Implemented | Learning (k8s, kubeadm), distro evaluation |
+| [0016](0016-cluster-networking-cilium.md) | Cluster networking: Cilium | Accepted | Learning (k8s, networking), presentation |
 | [0007](0007-gitops-bootstrap.md) | GitOps bootstrap with Argo CD | Draft | GitOps, learning, organization |
 | [0008](0008-kubernetes-storage.md) | Kubernetes persistent storage on Ceph | Draft | GitOps, learning (ceph) |
 | [0009](0009-platform-services.md) | Core platform services | Draft | GitOps, learning (k8s) |
+| [0012](0012-public-exposure-cloudflare.md) | Public service exposure via Cloudflare | Draft | TLS/exposure, GitOps |
+| [0015](0015-backup-and-recovery.md) | Backup and disaster recovery | Draft | GitOps, learning, organization |
 | [0010](0010-node-os-evaluation.md) | Node OS evaluation: Talos vs Flatcar | Draft | Distro evaluation, presentation |
 | [0011](0011-meetup-presentation.md) | 90-minute meetup presentation | Draft | Presentation |
-| [0012](0012-public-exposure-cloudflare.md) | Public service exposure via Cloudflare | Draft | TLS/exposure, GitOps |
 
 ## Repo goals (for reference)
 

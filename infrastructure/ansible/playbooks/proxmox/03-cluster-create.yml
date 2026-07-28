@@ -61,7 +61,7 @@
         seconds: 10
 
     - name: Create cluster on master node
-      command: pvecm create {{ cluster_name }} --bindnet0_addr {{ ansible_default_ipv4.address }}
+      command: pvecm create {{ cluster_name }} --link0 {{ ansible_default_ipv4.address }}
       when: inventory_hostname == cluster_master
       register: cluster_creation
 
@@ -98,17 +98,17 @@
       when: inventory_hostname == cluster_master
 
     - name: Add remaining nodes to cluster
-      command: pvecm add {{ hostvars[cluster_master]['ansible_default_ipv4']['address'] }} --force
+      command: >-
+        pvecm add {{ hostvars[cluster_master]['ansible_default_ipv4']['address'] }}
+        --link0 {{ ansible_default_ipv4.address }}
       when:
         - inventory_hostname != cluster_master
         - hostvars[cluster_master]['cluster_creation'] is defined
       register: node_join
-      failed_when: false
 
     - name: Check node join status
       debug:
-        msg: |
-          Node {{ inventory_hostname }} join status: {{ 'SUCCESS' if node_join.rc == 0 else 'FAILED - ' + node_join.stderr | default('unknown error') }}
+        msg: "Node {{ inventory_hostname }} joined the cluster."
       when: inventory_hostname != cluster_master
 
     - name: Wait for all nodes to stabilize

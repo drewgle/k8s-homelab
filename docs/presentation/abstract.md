@@ -1,5 +1,20 @@
-# GitOps Homelab: A GitOps Guide to Repeatable, Secure Escape from Cloud Services
+# GitOps Homelab: From Blank Hardware to a Self-Healing Kubernetes Platform
 
-With cloud services becoming increasingly expensive and security breaches making headlines regularly, many are seeking alternatives that prioritize privacy and control. This talk demonstrates how to build a comprehensive homelab infrastructure using GitOps principles to create repeatable, version-controlled deployments that rival commercial cloud offerings.
+Cloud bills keep climbing and every breach headline is a reminder of how
+little of your own data you actually hold. A homelab is the obvious answer —
+right up until you have hand-configured three machines, forgotten what you
+did to the second one, and can't rebuild any of them.
 
-We'll walk through deploying Proxmox for virtualization, Kubernetes for container orchestration, and a suite of self-hosted services that can replace Google Workspace, Dropbox, and other cloud dependencies. Using Infrastructure as Code and GitOps workflows, attendees will learn how to achieve enterprise-grade security, automated deployments, and disaster recovery capabilities—all while maintaining complete ownership of their data and infrastructure.
+This talk is about the other approach: an entire homelab defined in one git
+repository. We start at blank hardware and an unattended-install USB stick,
+build a Proxmox cluster with Ceph storage, bring up Kubernetes two different
+ways — Talos Linux and Flatcar Container Linux, so we can compare what it's
+actually like to *operate* each one — and hand the cluster over to Argo CD,
+which reconciles everything above it straight from the repo.
+
+Then we delete it all and watch it come back.
+
+You'll see the tools (Ansible, Proxmox, Ceph, Talos, Argo CD, Renovate), the
+tradeoffs behind each choice, and the parts that are genuinely annoying. No
+homelab background needed, and everything demonstrated is in a public repo
+you can clone and run against your own hardware.

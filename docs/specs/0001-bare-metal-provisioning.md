@@ -36,7 +36,13 @@ repo is the end-to-end source of truth.
   (`root-ssh-keys`), so first Ansible contact is key-based (no `-k`).
 - **BMP-06** Disk layout MUST be ext4 + LVM on `/dev/sda` only, preserving
   `local-lvm` (VMP-05) and leaving all other disks untouched for Ceph
-  (CEPH-06).
+  (CEPH-06). Each node has exactly one SATA disk and one NVMe disk: the SATA
+  disk (`sda`) is the OS, the NVMe is Ceph's. ZFS root was not chosen because
+  its main advantage here would be a boot mirror, and there is no second disk
+  to mirror onto that Ceph does not need more. **Redundancy at this layer is
+  the node count** — losing a boot disk means re-imaging one node (spec
+  0001 again) while the cluster stays quorate and Ceph rebalances, which is a
+  faster and better-tested path than restoring a hypervisor image.
 - **BMP-07** The raw root password MUST never be written to disk; only a
   sha512 hash may appear, and only under gitignored `generated/` paths.
 - **BMP-08** The PVE ISO version and sha256 MUST be pinned in

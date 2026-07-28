@@ -8,11 +8,12 @@
 
 The Proxmox cluster already runs a replicated Ceph cluster
 (`playbooks/proxmox/04-ceph-deploy.yml`), but Kubernetes workloads currently
-have no persistent storage at all. The architecture doc lists Longhorn, which
-would build a *second* replicated storage layer on top of VM disks that are
-already Ceph-backed — replication on replication, and it sidesteps the goal
-of learning Ceph. This spec chooses a CSI driver that exposes the existing
-Ceph cluster to Kubernetes instead.
+have no persistent storage at all. An earlier draft of the architecture doc
+named Longhorn, which would build a *second* replicated storage layer on top
+of VM disks that are already Ceph-backed — replication on replication, and it
+sidesteps the goal of learning Ceph. This spec chooses a CSI driver that
+exposes the existing Ceph cluster to Kubernetes instead, and the architecture
+doc has been updated to match.
 
 ## Goals
 
@@ -91,6 +92,10 @@ should be re-validated during implementation and this spec updated.
 ## Open questions
 
 - Does proxmox-csi-plugin's topology handling fit the round-robin VM
-  placement used by `proxmox_vm`? Verify volumes follow pods correctly during
-  live migration of the underlying VM.
-- Update the architecture doc's Longhorn references once this lands.
+  placement used by `proxmox_vm`? The plugin labels nodes by
+  `topology.kubernetes.io/zone` = Proxmox node; volumes on *shared* storage
+  (which the Ceph pool is) can migrate across zones, volumes on local storage
+  cannot. Confirm this holds during live migration of the underlying VM.
+- Volume snapshots are listed as a non-goal above, but spec
+  [0015](0015-backup-and-recovery.md) needs the CSI snapshot API for Velero.
+  Decide whether that pulls snapshot support back into this spec.

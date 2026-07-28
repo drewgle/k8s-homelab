@@ -13,7 +13,7 @@ machine:
     crt: {{ talos_secrets.certs.os.crt }}
     key: {{ talos_secrets.certs.os.key }}
   certSANs:
-    - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
+    - {{ talos_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
 {% for host in groups['talos_controlplane'] %}
     - {{ hostvars[host]['ansible_host'] }}
     - {{ host }}
@@ -44,14 +44,25 @@ machine:
 {% for ns in dns_servers | default(['1.1.1.1', '8.8.8.8']) %}
       - {{ ns }}
 {% endfor %}
-{% if kubernetes_network_interface is defined %}
+{% if kubernetes_network_interface is defined or talos_vip is defined %}
     interfaces:
-      - interface: {{ kubernetes_network_interface }}
+      - interface: {{ kubernetes_network_interface | default('eth0') }}
+{% if kubernetes_network_interface is defined %}
         addresses:
           - {{ node_ip }}/{{ vm_cidr_bits | default('24') }}
         routes:
           - network: 0.0.0.0/0
             gateway: {{ vm_gateway }}
+{% else %}
+        dhcp: true
+{% endif %}
+{% if talos_vip is defined %}
+        # Shared control plane IP, elected through etcd (spec 0016, CNI-09).
+        # It only comes up after bootstrap, so 02-cluster-create.yml still
+        # drives apply-config and bootstrap off real node addresses.
+        vip:
+          ip: {{ talos_vip }}
+{% endif %}
 {% endif %}
   nodeLabels:
     node.kubernetes.io/exclude-from-external-load-balancers: ""
@@ -67,16 +78,23 @@ cluster:
   id: {{ talos_secrets.cluster.id }}
   secret: {{ talos_secrets.cluster.secret }}
   controlPlane:
-    endpoint: {{ kubernetes_cluster_endpoint }}
-  clusterName: {{ kubernetes_cluster_name | default('homelab-k8s') }}
+    endpoint: {{ talos_cluster_endpoint }}
+  clusterName: {{ talos_cluster_name | default('homelab-k8s') }}
   network:
     dnsDomain: {{ kubernetes_dns_domain | default('cluster.local') }}
     podSubnets:
-      - {{ kubernetes_pod_subnet | default('10.244.0.0/16') }}
+      - {{ talos_pod_subnet | default('10.244.0.0/16') }}
     serviceSubnets:
-      - {{ kubernetes_service_subnet | default('10.96.0.0/12') }}
+      - {{ talos_service_subnet | default('10.96.0.0/12') }}
     cni:
-      name: {{ kubernetes_cni | default('flannel') }}
+{% if kubernetes_cni | default('cilium') == 'cilium' %}
+      # Cilium is installed by 02-cluster-create.yml after bootstrap
+      # (spec 0016, CNI-02/CNI-03). Talos's cni.name accepts only
+      # none/flannel/custom, so "cilium" is never passed through here.
+      name: none
+{% else %}
+      name: {{ kubernetes_cni }}
+{% endif %}
   token: {{ talos_secrets.secrets.bootstraptoken }}
   secretboxEncryptionSecret: {{ talos_secrets.secrets.secretboxencryptionsecret }}
   ca:
@@ -90,7 +108,7 @@ cluster:
   apiServer:
     image: registry.k8s.io/kube-apiserver:{{ kubernetes_version }}
     certSANs:
-      - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
+      - {{ talos_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
 {% for host in groups['talos_controlplane'] %}
       - {{ hostvars[host]['ansible_host'] }}
 {% endfor %}
@@ -100,7 +118,8 @@ cluster:
   controllerManager:
     image: registry.k8s.io/kube-controller-manager:{{ kubernetes_version }}
   proxy:
-    disabled: false
+    # Cilium replaces kube-proxy (spec 0016, CNI-04).
+    disabled: {{ (kubernetes_cni | default('cilium') == 'cilium') | lower }}
     image: registry.k8s.io/kube-proxy:{{ kubernetes_version }}
   scheduler:
     image: registry.k8s.io/kube-scheduler:{{ kubernetes_version }}

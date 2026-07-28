@@ -27,7 +27,12 @@ grows an existing cluster.
   before any cluster command runs.
 - **CLU-04** Remaining nodes join the creator over the management IP; after
   formation every node's `pvecm status` MUST succeed and the web UI (port
-  8006) MUST answer on every node.
+  8006) MUST answer on every node. A join that fails MUST fail the play —
+  a partially formed cluster is never an acceptable end state.
+- **CLU-08** Corosync links MUST be configured with `--link0`
+  ([knet](https://pve.proxmox.com/wiki/Cluster_Manager#_cluster_network),
+  corosync 3), not the pre-corosync-3 `--bindnet0_addr` flag. A second link
+  for redundancy is not configured here; see known limitations.
 - **CLU-05** Each node's hostname MUST resolve to its management IP locally
   (standard PVE installer behavior — provided by spec 0001 or manual
   install). corosync and `pvecm add` depend on it.
@@ -58,11 +63,10 @@ Consumes: `proxmox_cluster_name`, optional `proxmox_cluster_network`
 
 ## Known limitations
 
-- `pvecm create` is invoked with the legacy `--bindnet0_addr` flag; modern
-  pvecm prefers `--link0`. Works today, worth modernizing.
-- Node joins use `--force` and tolerate per-node failure (status is printed,
-  the play continues) — a partially formed cluster is possible and only
-  visible in the output/acceptance checks.
+- Only one corosync link (`link0`, the management network) is configured.
+  Corosync supports up to eight; a second link on the Ceph cluster network
+  would keep the cluster quorate through a management-switch failure. Not
+  automated because most nodes here have one usable NIC for it.
 - Removing a node from the cluster is not automated (Proxmox makes departed
   node names sticky; manual `pvecm delnode` per the
   [official docs](https://pve.proxmox.com/wiki/Cluster_Manager#pvecm_remove_node)).

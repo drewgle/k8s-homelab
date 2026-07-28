@@ -1,0 +1,23 @@
+# Managed by playbooks/proxmox/harden.yml - see HARDENING.md
+[OPTIONS]
+
+enable: 1
+# Guest traffic is not filtered here. VM NICs carry firewall=1 (spec 0006) so
+# per-guest rules can be added later without touching the hypervisor ruleset.
+policy_in: ACCEPT
+policy_out: ACCEPT
+policy_forward: ACCEPT
+
+[ALIASES]
+
+ceph_public {{ ceph_public_network }}
+{% if ceph_cluster_network is defined and ceph_cluster_network != ceph_public_network %}
+ceph_cluster {{ ceph_cluster_network }}
+{% endif %}
+
+[IPSET management] # hosts allowed to manage the cluster
+
+{% set node_addresses = groups['proxmox'] | map('extract', hostvars) | map(attribute='ansible_host') | select('defined') | list %}
+{% for entry in (pve_management_sources + node_addresses) | unique %}
+{{ entry }}
+{% endfor %}

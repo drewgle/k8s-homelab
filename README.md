@@ -3,9 +3,9 @@
 > Automated homelab infrastructure as code: Proxmox, Ceph, and Kubernetes (Talos or Flatcar)
 
 Ansible automation for building and maintaining a homelab that runs Kubernetes
-on a Proxmox VE cluster with Ceph storage. Two interchangeable Kubernetes node
-operating systems are supported — Talos Linux and Flatcar Container Linux —
-sharing the same VM network and IP ranges (run one at a time).
+on a Proxmox VE cluster with Ceph storage. Two Kubernetes node operating
+systems are supported — Talos Linux and Flatcar Container Linux — sharing the
+VM VLAN but addressed separately, so you can run either or both.
 
 ## Project Structure
 
@@ -42,7 +42,11 @@ k8s-homelab/
 ### Prerequisites
 
 - **Ansible** 2.15+ (`pip install ansible`)
-- **Proxmox VE** 7.0+ hosts reachable over SSH as root
+- **Helm** on the control machine — the Kubernetes playbooks install the CNI
+  with it ([spec 0016](docs/specs/0016-cluster-networking-cilium.md))
+- **Proxmox VE** 8.0+ hosts reachable over SSH as root (9.x is what's
+  tested — the bare-metal installer pins a 9.x ISO and the repository
+  handling covers deb822 sources)
 - Collections: `ansible-galaxy collection install -r infrastructure/ansible/requirements.yml`
 
 ### 1. Configuration
@@ -96,7 +100,9 @@ ansible-playbook playbooks/flatcar/01-provision-vms.yml
 ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
 ```
 
-To switch between them, tear down the current VMs first:
+The two stacks have separate node IPs, pod/service CIDRs and cluster names,
+so they coexist. Check RAM before running both — the defaults want 36GB per
+stack. To tear one down:
 
 ```bash
 ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
@@ -139,7 +145,11 @@ ansible-playbook playbooks/talos/add-node.yml -e "new_nodes=['talos-worker-04']"
 Component versions live in `infrastructure/linux/{talos,flatcar}/versions.yaml`
 and are updated automatically by [Renovate](renovate.json) via
 `# renovate:` annotations. Talos patch releases auto-merge after a 3-day
-soak; Kubernetes updates always require manual review.
+soak; Kubernetes and Flatcar updates always require manual review — a
+Kubernetes minor has to wait for a Talos release that targets it.
+
+The Proxmox ISO has no Renovate datasource and is bumped by hand; see the
+comment at the top of `infrastructure/linux/proxmox/versions.yaml`.
 
 ## Security Notes
 

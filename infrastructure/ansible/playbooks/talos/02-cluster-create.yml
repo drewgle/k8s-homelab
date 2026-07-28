@@ -13,6 +13,8 @@
     kubernetes_version: "{{ versions.kubernetes.version }}"
     talos_nodes: "{{ groups['talos_controlplane'] + (groups['talos_worker'] | default([])) }}"
     first_controlplane_ip: "{{ hostvars[groups['talos_controlplane'][0]]['ansible_host'] }}"
+    cilium_version: "{{ versions.cni.cilium }}"
+    kubeconfig: "{{ talos_dir }}/generated/kubeconfig"
 
   tasks:
     - name: Check minimum node requirements
@@ -61,8 +63,8 @@
         --with-secrets {{ talos_dir }}/secrets.yaml
         --output-types talosconfig
         --output {{ talos_dir }}/generated/talosconfig
-        {{ kubernetes_cluster_name | default('homelab-k8s') }}
-        {{ kubernetes_cluster_endpoint }}
+        {{ talos_cluster_name | default('homelab-k8s') }}
+        {{ talos_cluster_endpoint }}
       args:
         creates: "{{ talos_dir }}/generated/talosconfig"
 
@@ -142,14 +144,61 @@
       register: kubeconfig_result
       until: kubeconfig_result.rc == 0
 
+    # The VIP is etcd-elected, so it only exists once the control plane is up.
+    # Everything above used real node addresses; everything below goes through
+    # the kubeconfig, whose server is the VIP (spec 0016, CNI-09).
+    - name: Wait for the control plane VIP to answer
+      wait_for:
+        host: "{{ talos_vip }}"
+        port: 6443
+        timeout: 180
+      when: talos_vip is defined
+
+    # Talos installs no CNI (spec 0016, CNI-02). Nodes stay NotReady until
+    # Cilium is running, so the CNI install comes before the health check.
+    - name: Require helm on the control machine
+      command: helm version --short
+      register: helm_present
+      changed_when: false
+      failed_when: helm_present.rc != 0
+      when: kubernetes_cni | default('cilium') == 'cilium'
+
+    - name: Add the Cilium Helm repository
+      command: helm repo add cilium https://helm.cilium.io
+      register: cilium_repo
+      changed_when: "'has been added' in cilium_repo.stdout"
+      when: kubernetes_cni | default('cilium') == 'cilium'
+
+    # The securityContext, cgroup and KubePrism values are required by Talos's
+    # read-only rootfs and cgroup layout (spec 0016, CNI-05/CNI-06). They are
+    # Talos-specific — the Flatcar install must not copy them.
+    - name: Install Cilium with kube-proxy replacement
+      command: >
+        helm upgrade --install cilium cilium/cilium
+        --version {{ cilium_version }}
+        --namespace kube-system
+        --kubeconfig {{ kubeconfig }}
+        --set ipam.mode=kubernetes
+        --set kubeProxyReplacement=true
+        --set k8sServiceHost=localhost
+        --set k8sServicePort=7445
+        --set cgroup.autoMount.enabled=false
+        --set cgroup.hostRoot=/sys/fs/cgroup
+        --set securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}"
+        --set securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}"
+        --set hubble.relay.enabled=true
+        --set hubble.ui.enabled=true
+        --wait --timeout 10m
+      when: kubernetes_cni | default('cilium') == 'cilium'
+
     - name: Verify cluster health
       command: >
-        kubectl --kubeconfig={{ talos_dir }}/generated/kubeconfig
+        kubectl --kubeconfig={{ kubeconfig }}
         get nodes
       register: cluster_nodes
       retries: 10
       delay: 30
-      until: cluster_nodes.rc == 0
+      until: cluster_nodes.rc == 0 and 'NotReady' not in cluster_nodes.stdout
 
     - name: Display cluster status
       debug:

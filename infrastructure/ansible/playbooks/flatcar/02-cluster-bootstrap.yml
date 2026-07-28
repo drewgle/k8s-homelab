@@ -31,13 +31,46 @@
         path: /etc/kubernetes/admin.conf
       register: cluster_initialized
 
+    # kubeadm >= 1.29 does not produce a usable admin.conf until init has
+    # finished, so kube-vip cannot authenticate during init. Point it at
+    # super-admin.conf for the duration and switch back afterwards.
+    # https://github.com/kube-vip/kube-vip/issues/684
+    - name: Point kube-vip at super-admin.conf for the duration of init
+      replace:
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+        regexp: '/etc/kubernetes/admin\.conf'
+        replace: /etc/kubernetes/super-admin.conf
+      when:
+        - flatcar_vip is defined
+        - not cluster_initialized.stat.exists
+
+    # kube-proxy is skipped when Cilium is the CNI: Cilium replaces it
+    # (spec 0016, CNI-04). Removing it after the fact is a live-cluster
+    # migration, so the decision has to be made here.
     - name: Initialize Kubernetes cluster
       command: >
         kubeadm init
         --config=/etc/kubernetes/kubeadm-config.yaml
         --upload-certs
+        {{ '--skip-phases=addon/kube-proxy' if kubernetes_cni | default('cilium') == 'cilium' else '' }}
       when: not cluster_initialized.stat.exists
       register: kubeadm_init
+
+    - name: Point kube-vip back at admin.conf
+      replace:
+        path: /etc/kubernetes/manifests/kube-vip.yaml
+        regexp: '/etc/kubernetes/super-admin\.conf'
+        replace: /etc/kubernetes/admin.conf
+      when: flatcar_vip is defined
+
+    # A wrong flatcar_vip_interface is the most likely way this silently does
+    # nothing, so fail here rather than at the first control plane outage.
+    - name: Wait for the control plane VIP to answer
+      wait_for:
+        host: "{{ flatcar_vip }}"
+        port: 6443
+        timeout: 180
+      when: flatcar_vip is defined
 
     - name: Create kubectl directory for core user
       file:
@@ -139,6 +172,11 @@
 
   vars:
     versions: "{{ lookup('file', playbook_dir + '/../../../linux/flatcar/versions.yaml') | from_yaml }}"
+    # Cilium needs to reach the API server before a Service network exists,
+    # so it is pointed at the control plane endpoint directly (spec 0016,
+    # CNI-05). Flatcar has no KubePrism equivalent.
+    apiserver_host: "{{ flatcar_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}"
+    apiserver_port: "{{ flatcar_cluster_endpoint | regex_replace('^.*:', '') }}"
 
   tasks:
     - name: Wait for all nodes to register
@@ -155,16 +193,39 @@
       command: >
         kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f
         https://github.com/flannel-io/flannel/releases/download/{{ versions.cni.flannel_version }}/kube-flannel.yml
-      when: kubernetes_cni | default('flannel') == 'flannel'
+      when: kubernetes_cni | default('cilium') == 'flannel'
       register: cni_install
 
-    - name: Install CNI plugin (Cilium)
-      shell: |
-        helm repo add cilium https://helm.cilium.io/
-        helm install cilium cilium/cilium --version {{ versions.cni.cilium_version }} \
-          --namespace kube-system \
-          --set operator.replicas=1
-      when: kubernetes_cni | default('flannel') == 'cilium'
+    - name: Require helm on the first control plane
+      command: helm version --short
+      register: helm_present
+      changed_when: false
+      failed_when: helm_present.rc != 0
+      when: kubernetes_cni | default('cilium') == 'cilium'
+
+    - name: Add the Cilium Helm repository
+      command: helm repo add cilium https://helm.cilium.io
+      register: cilium_repo
+      changed_when: "'has been added' in cilium_repo.stdout"
+      when: kubernetes_cni | default('cilium') == 'cilium'
+
+    # No Talos securityContext/cgroup overrides here — those are specific to
+    # Talos's read-only rootfs (spec 0016, CNI-06).
+    - name: Install CNI plugin (Cilium) with kube-proxy replacement
+      command: >
+        helm upgrade --install cilium cilium/cilium
+        --version {{ versions.cni.cilium_version }}
+        --namespace kube-system
+        --kubeconfig /etc/kubernetes/admin.conf
+        --set ipam.mode=kubernetes
+        --set kubeProxyReplacement=true
+        --set k8sServiceHost={{ apiserver_host }}
+        --set k8sServicePort={{ apiserver_port }}
+        --set operator.replicas=1
+        --set hubble.relay.enabled=true
+        --set hubble.ui.enabled=true
+        --wait --timeout 10m
+      when: kubernetes_cni | default('cilium') == 'cilium'
       register: cilium_install
 
     - name: Wait for all pods to be ready

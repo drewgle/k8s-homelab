@@ -31,12 +31,14 @@ to what will demonstrably exist, and defines the missing materials.
 
 ## Design
 
-### Revised abstract
+### Revised abstract — **done**
 
-Reframe from "escape cloud services" to "GitOps homelab: from blank
-hardware to a self-healing Kubernetes platform, entirely from one git
-repo" — keeping the privacy/cost hook as motivation, dropping the
-Workspace/Dropbox replacement promise unless those apps exist by then.
+`abstract.md` has been rewritten: reframed from "escape cloud services" to
+"from blank hardware to a self-healing Kubernetes platform, entirely from one
+git repo", keeping the privacy/cost hook as motivation and dropping the
+Workspace/Dropbox replacement promise. If one or two real self-hosted apps
+exist by the talk (see open questions), add them as a closing example rather
+than restoring the original framing.
 
 ### Outline and timing budget (~75 min content)
 
@@ -46,7 +48,7 @@ Workspace/Dropbox replacement promise unless those apps exist by then.
 | 2 | The stack at a glance — one diagram, layer by layer | 7 min | architecture doc |
 | 3 | Bare metal → Proxmox: unattended install USB | 8 min | `playbooks/bootstrap/`, `infrastructure/linux/proxmox/` |
 | 4 | Proxmox cluster + Ceph in one command | 10 min | `site.yml`; **demo A** |
-| 5 | Kubernetes two ways: Talos vs Flatcar | 12 min | spec 0010 matrix + journal stories |
+| 5 | Kubernetes two ways: Talos vs Flatcar | 12 min | specs 0013/0014 + spec 0010 matrix and journal stories |
 | 6 | GitOps: the cluster that rebuilds itself | 15 min | specs 0007–0009; **demos B & C** |
 | 7 | Keeping it alive: Renovate, upgrades, lessons learned | 10 min | renovate.json, journal |
 | 8 | Getting started yourself — minimal hardware, first steps | 5 min | root README |
@@ -61,7 +63,7 @@ Workspace/Dropbox replacement promise unless those apps exist by then.
   `git commit` a change to an app manifest, watch Argo CD reconcile it.
   Runs on a laptop-reachable homelab via VPN *with a recorded fallback*, or
   entirely on a local [kind](https://kind.sigs.k8s.io/) /
-  [Talos-in-Docker](https://www.talos.dev/v1.7/talos-guides/install/local-platforms/docker/)
+  [Talos-in-Docker](https://www.talos.dev/latest/talos-guides/install/local-platforms/docker/)
   cluster mirroring the repo.
 - **Demo C (recorded):** the resilience money-shot — `remove-vms.yml`, full
   re-provision, Argo CD restores every workload. Time-lapse from spec 0007's
@@ -90,8 +92,8 @@ Timing adjustments recorded in outline.md.
 
 ## Implementation plan
 
-1. Revise abstract.md; write outline.md with speaker notes (can start now —
-   sections 1–5 don't depend on the GitOps specs).
+1. ~~Revise abstract.md~~ (done); write outline.md with speaker notes (can
+   start now — sections 1–5 don't depend on the GitOps specs).
 2. Build slides skeleton; pick [Marp](https://marp.app/) or
    [reveal.js](https://revealjs.com/).
 3. Record demo A during the next infrastructure rebuild.

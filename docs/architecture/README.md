@@ -2,6 +2,12 @@
 
 This document provides a comprehensive overview of the homelab infrastructure architecture, including component relationships, data flows, and design decisions.
 
+> **How to read this document.** It describes the *target* end state. Where a
+> layer is already built, the [specs](../specs/) are authoritative and this
+> page summarizes them; where it is not, the spec is the plan and this page is
+> a sketch. Any conflict between the two is a bug in this page. Sections
+> below name the spec that owns each area.
+
 ## High-Level Architecture
 
 ```
@@ -79,7 +85,8 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 #### Ceph Distributed Storage
 - **Purpose**: Unified storage backend for VMs and containers
 - **Features**:
-  - Fault tolerant (n-2 redundancy)
+  - Fault tolerant (`size 3` / `min_size 2` — survives one node loss and
+    stays writable)
   - Self-healing and self-managing
   - Block, object, and file storage
   - Horizontal scaling
@@ -97,20 +104,41 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 #### Kubernetes Cluster
 - **Control Plane**: 3 nodes for HA
 - **Worker Nodes**: N nodes for workload distribution
-- **Networking**: Flannel CNI for pod networking
-- **Storage**: Longhorn for persistent volumes
+- **Networking**: Cilium, with kube-proxy replacement — see
+  [spec 0016](../specs/0016-cluster-networking-cilium.md). Same CNI and
+  version on both node OSes, so the OS comparison measures the OS. flannel
+  remains selectable via `kubernetes_cni` but is not the default: it does not
+  implement NetworkPolicy, and it fails to do so *silently*.
+- **Storage**: a CSI driver against the *existing* Proxmox Ceph cluster —
+  see [spec 0008](../specs/0008-kubernetes-storage.md). Longhorn was
+  considered and rejected: it would build a second replicated storage layer
+  on top of VM disks that are already Ceph-backed, and it sidesteps the goal
+  of learning Ceph.
+- Lifecycle: [spec 0013](../specs/0013-talos-cluster-lifecycle.md) (Talos),
+  [spec 0014](../specs/0014-flatcar-cluster-lifecycle.md) (Flatcar).
 
 ### Application Layer
 
 #### GitOps Management
 - **ArgoCD**: Continuous delivery for K8s applications
+  ([spec 0007](../specs/0007-gitops-bootstrap.md))
 - **Git Repository**: Single source of truth for configuration
 
 #### Core Services
-- **Ingress**: NGINX Ingress Controller with cert-manager
+
+Specified in [spec 0009](../specs/0009-platform-services.md); none of it is
+built yet.
+
+- **Load balancing**: MetalLB in L2 mode on the VM VLAN
+- **Ingress**: Gateway API, implemented by Envoy Gateway, with cert-manager
+  issuing Let's Encrypt certificates over DNS-01. *Not* ingress-nginx — that
+  project was retired by Kubernetes SIG Network in March 2026 and receives no
+  further fixes, including security fixes.
 - **Monitoring**: Prometheus + Grafana stack
-- **Logging**: Loki for log aggregation
-- **Storage**: Longhorn for container persistent volumes
+- **Logging**: Loki, with Grafana Alloy as the collector (Promtail reached
+  end of life in March 2026)
+- **Public exposure**: Cloudflare Tunnel, outbound-only
+  ([spec 0012](../specs/0012-public-exposure-cloudflare.md))
 
 ## Design Decisions
 
@@ -131,8 +159,10 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 - API-driven management
 
 Flatcar Container Linux with kubeadm is maintained as an alternative node OS
-(`infrastructure/ansible/playbooks/flatcar/`) for comparison; both use the
-same VM network and IP ranges, so only one runs at a time.
+(`infrastructure/ansible/playbooks/flatcar/`) for comparison. The two stacks
+share the VM VLAN but have disjoint node IPs, pod CIDRs, service CIDRs and
+cluster names, so both can run at once — capacity permitting. The comparison
+itself is [spec 0010](../specs/0010-node-os-evaluation.md).
 
 ### Storage Strategy
 **Decision**: Ceph for distributed storage
@@ -188,30 +218,47 @@ Defaults from `infrastructure/ansible/vars.yml.example`:
 
 - **Management Network**: 192.168.1.0/24 (Proxmox hosts, Ceph public network)
 - **VM Network**: 192.168.100.0/24 on VLAN 100 (Kubernetes nodes)
-- **Container Network**: 10.244.0.0/16 (Pod CIDR)
-- **Service Network**: 10.96.0.0/12 (Service CIDR)
 - **Storage Network**: 10.0.1.0/24 (optional dedicated Ceph cluster network)
+
+The two Kubernetes stacks are addressed disjointly so both can run at once
+(spec [0006](../specs/0006-vm-platform.md), VMP-07):
+
+| | Talos | Flatcar |
+|---|---|---|
+| Node IPs | 192.168.100.201-213 | 192.168.100.221-233 |
+| Pod CIDR | 10.244.0.0/16 | 10.245.0.0/16 |
+| Service CIDR | 10.96.0.0/12 | 10.112.0.0/12 |
 
 ## Security Architecture
 
 ### Defense in Depth
 1. **Physical Security**: Locked server room/rack
-2. **Host Hardening**: CIS benchmarks and security baselines
-3. **Network Segmentation**: VLANs and firewall rules
-4. **VM Isolation**: Proxmox VM boundaries
-5. **Container Security**: Pod security standards
-6. **Application Security**: Security policies and scanning
+2. **Host Hardening**: SSH lockdown, sysctl hardening, auditd, fail2ban —
+   [spec 0005](../specs/0005-node-hardening.md) *(built)*
+3. **Network Segmentation**: VLAN 100 for VMs; the built-in Proxmox firewall
+   (nftables) on the hosts, default-drop inbound *(built)*
+4. **VM Isolation**: Proxmox VM boundaries *(built)*
+5. **Container Security**: Pod security standards *(not started)*
+6. **Application Security**: Security policies and scanning *(not started)*
 
 ### Access Control
-- **SSH Keys**: No password authentication
-- **RBAC**: Fine-grained Kubernetes permissions
-- **Network Policies**: Micro-segmentation in K8s
-- **Service Mesh**: Optional Istio for advanced traffic control
+- **SSH Keys**: No password authentication *(built)*
+- **RBAC**: Fine-grained Kubernetes permissions *(default RBAC only)*
+- **Network Policies**: micro-segmentation in K8s — enforceable now that
+  Cilium is the CNI ([spec 0016](../specs/0016-cluster-networking-cilium.md));
+  baseline policies are written once there are applications to scope them to
+  *(enforcement available, policies not yet written)*
+- **Service Mesh**: not planned. It would be the largest single piece of
+  complexity in the stack for no need this homelab has.
 
 ### Secrets Management
-- **Ansible Vault**: Encrypted variables for infrastructure
-- **Sealed Secrets**: Kubernetes secrets encrypted at rest
-- **External Secrets**: Optional HashiCorp Vault integration
+- **Ansible Vault**: encrypted variables for infrastructure
+- **Sealed Secrets**: Kubernetes secrets committed encrypted
+  ([spec 0007](../specs/0007-gitops-bootstrap.md)) — the sealing key is the
+  single point of failure and is covered by
+  [spec 0015](../specs/0015-backup-and-recovery.md)
+- Generated cluster secrets, machine configs and kubeconfigs live in
+  gitignored `generated/` directories and are never committed
 
 ## Monitoring and Observability
 
@@ -221,28 +268,35 @@ Defaults from `infrastructure/ansible/vars.yml.example`:
 - **Applications**: Custom metrics via Prometheus
 
 ### Logging
-- **Centralized**: Loki for log aggregation
+- **Centralized**: Loki, collected by Grafana Alloy
 - **Application Logs**: Structured logging with JSON
 - **Audit Logs**: Kubernetes API server logs
 
 ### Alerting
-- **AlertManager**: Route alerts to appropriate channels
-- **Grafana**: Visual dashboards and alert rules
-- **Notification**: Slack, email, or PagerDuty integration
+- **AlertManager**: ships with kube-prometheus-stack; routing stays default
+  until there is an audience for alerts
+- **Grafana**: visual dashboards and alert rules
 
 ## Backup and Disaster Recovery
 
-### Data Protection
-- **VM Backups**: Proxmox backup server
-- **K8s Backups**: Velero for application data
-- **Configuration Backups**: Git repository with IaC
-- **Storage Replication**: Ceph replication pools
+Specified in [spec 0015](../specs/0015-backup-and-recovery.md). **None of it
+is implemented yet** — treat this section as the plan, not a guarantee.
 
-### Recovery Procedures
-- **RTO**: Recovery Time Objective < 4 hours
-- **RPO**: Recovery Point Objective < 1 hour
-- **DR Testing**: Monthly disaster recovery drills
-- **Documentation**: Detailed runbooks for all scenarios
+### Data Protection
+- **Cluster identity**: Talos secrets bundle, kubeadm PKI, and the
+  sealed-secrets key — small, static, and the difference between "rebuild"
+  and "gone"
+- **VM Backups**: `vzdump` to Proxmox Backup Server or a NAS
+- **K8s Backups**: Velero for application data and CSI volume snapshots
+- **Configuration Backups**: this git repository
+- **Storage Replication**: Ceph replication pools — note that replication is
+  *not* a backup; it protects against a node loss, not against deletion
+
+### Recovery objectives
+
+Per-scenario targets live in spec 0015. They are estimates until the drill in
+that spec measures them; this page will not restate numbers that have never
+been tested.
 
 ## Scalability Considerations
 

@@ -3,7 +3,8 @@
 **Status:** Implemented
 **Serves goals:** Learning (Proxmox, security); repo organization
 **Implementing files:** `infrastructure/ansible/playbooks/proxmox/harden.yml`,
-`verify-hardening.yml`, `infrastructure/ansible/templates/jail.local.j2`
+`verify-hardening.yml`, `infrastructure/ansible/templates/jail.local.j2`,
+`cluster.fw.j2`, `host.fw.j2`
 
 ## Context
 
@@ -22,18 +23,28 @@ this spec records the invariants.
 - **HARD-02** SSH accepts only root (`AllowUsers root`), public-key auth,
   protocol 2, modern KEX/cipher/MAC algorithms only, with bounded auth
   attempts and session keepalives.
-- **HARD-03** UFW default policy is deny incoming / allow outgoing / deny
-  routed, with an explicit allowlist: 22/tcp (SSH), 8006/tcp (web UI),
-  3128/tcp (spice proxy), 5900-5999/tcp (VNC), 5404-5405/udp (corosync),
-  111/tcp+udp (rpcbind) — per the
-  [Proxmox port list](https://pve.proxmox.com/wiki/Ports). Ceph ports
-  (3300, 6789, 6800-7300/tcp — see the
-  [Ceph network config reference](https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/))
-  are allowed only from `ceph_public_network`. UFW is the *single* managed
-  firewall:
-  the built-in Proxmox firewall is explicitly kept disabled datacenter-wide
-  (`/etc/pve/firewall/cluster.fw`, `enable: 0`) so the two never
-  double-filter.
+- **HARD-03** The
+  [built-in Proxmox firewall](https://pve.proxmox.com/pve-docs/chapter-pve-firewall.html)
+  is the *single* managed firewall, and UFW MUST be absent so the two can
+  never double-filter. It is the platform's supported path: nftables backend,
+  configuration replicated through pmxcfs, and visible in the web UI.
+  - Host input policy is DROP (the firewall's behavior whenever enabled);
+    output is ACCEPT.
+  - Guest policy stays ACCEPT at the datacenter level, so the `firewall=1`
+    flag on VM NICs (spec [0006](0006-vm-platform.md)) becomes a live hook
+    for per-guest rules rather than an inert setting.
+  - Proxmox's own management rules cover 22/tcp (SSH), 8006/tcp (web UI),
+    3128/tcp (SPICE proxy), 5900-5999/tcp (VNC), 5405-5412/udp (corosync)
+    and **60000-60050/tcp (live migration)** — the last of which the previous
+    UFW allowlist omitted, silently breaking migration between nodes.
+  - Only Ceph (3300, 6789, 6800-7300/tcp — see the
+    [Ceph network config reference](https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/))
+    and rpcbind (111/tcp+udp) need explicit rules, sourced from the Ceph
+    networks and the management IPSet respectively.
+- **HARD-03a** The `management` IPSet MUST be rendered from
+  `firewall_management_sources` (default: the Proxmox cluster network) plus
+  every inventory node's address. This is the lockout-critical value: a host
+  outside the set cannot reach SSH or the web UI.
 - **HARD-04** [fail2ban](https://github.com/fail2ban/fail2ban) jails cover
   sshd and the Proxmox web UI (custom
   `proxmox-web` filter on pvedaemon auth failures): 3 retries → 1h ban.
@@ -64,8 +75,11 @@ this spec records the invariants.
 - [ ] `verify-hardening.yml` passes on every node.
 - [ ] `ssh -o PreferredAuthentications=password root@node` is refused;
       key-based login still works.
-- [ ] `ufw status verbose` shows default deny incoming and exactly the
-      allowlisted ports.
+- [ ] `pve-firewall status` reports `enabled/running` on every node, and
+      `ufw` is not installed.
+- [ ] `pve-firewall compile` shows the migration range 60000-60050 and the
+      Ceph rules, and a live migration between two nodes succeeds with the
+      firewall on.
 - [ ] `fail2ban-client status sshd` and `... status proxmox-web` show both
       jails active.
 - [ ] Cluster and Ceph operations still work post-hardening (CLU-04
@@ -78,5 +92,10 @@ this spec records the invariants.
   maintenance windows; acceptable for a homelab.
 - auditd immutability (HARD-07) means iterating on audit rules is
   reboot-gated by design.
-- The `firewall=1` flag on VM NICs (spec [0006](0006-vm-platform.md)) is
-  inert while the PVE firewall is disabled per HARD-03; that is intentional.
+- Guest traffic is unfiltered (HARD-03). The `firewall=1` flag on VM NICs
+  (spec [0006](0006-vm-platform.md)) makes per-guest rules possible, but none
+  are written yet — Kubernetes node policy belongs to the cluster layer for
+  now.
+- `firewall_management_sources` is the one setting that can lock the operator
+  out of every node at once. Console access is the recovery path
+  (see HARDENING.md).

@@ -59,7 +59,7 @@ The `generated/` directory contains:
 
 ## Usage
 
-Machine configurations are generated and applied via Ansible playbooks in [../ansible/playbooks/talos/](../ansible/playbooks/talos/).
+Machine configurations are generated and applied via Ansible playbooks in [../ansible/playbooks/talos/](../../ansible/playbooks/talos/).
 
 1. **Generate configs**: Templates are rendered with inventory variables
 2. **Apply configs**: Machine configs are applied to Talos nodes via `talosctl`
@@ -82,6 +82,6 @@ Machine configurations are generated and applied via Ansible playbooks in [../an
 
 ## Related Documentation
 
-- [Talos Ansible Playbooks](../ansible/playbooks/talos/README.md)
+- [Talos Ansible Playbooks](../../ansible/playbooks/talos/README.md)
 - [Talos Official Documentation](https://www.talos.dev/docs/)
 - [Kubernetes Documentation](https://kubernetes.io/docs/)

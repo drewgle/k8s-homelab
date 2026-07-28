@@ -1,0 +1,26 @@
+# Managed by playbooks/proxmox/harden.yml - see HARDENING.md
+#
+# The host input policy is DROP whenever the firewall is enabled. Proxmox
+# itself allows the management IPSet to reach the web UI (8006), SSH (22),
+# the SPICE proxy (3128), VNC consoles (5900-5999), live migration
+# (60000-60050) and corosync (5405-5412) between cluster members, so none of
+# those need a rule here. Only the Ceph ports and rpcbind do.
+[OPTIONS]
+
+enable: 1
+nftables: 1
+protection_synflood: 1
+log_level_in: nolog
+
+[RULES]
+
+{% for port in ceph_firewall_ports %}
+IN ACCEPT -source dc/ceph_public -p tcp -dport {{ port.port }} -log nolog # {{ port.comment }} (public net)
+{% endfor %}
+{% if ceph_cluster_network is defined and ceph_cluster_network != ceph_public_network %}
+{% for port in ceph_firewall_ports %}
+IN ACCEPT -source dc/ceph_cluster -p tcp -dport {{ port.port }} -log nolog # {{ port.comment }} (cluster net)
+{% endfor %}
+{% endif %}
+IN ACCEPT -source +dc/management -p tcp -dport 111 -log nolog # rpcbind
+IN ACCEPT -source +dc/management -p udp -dport 111 -log nolog # rpcbind

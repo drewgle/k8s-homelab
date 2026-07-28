@@ -68,11 +68,12 @@ applications/
 │   └── root.yaml          # App-of-apps: watches applications/system + apps
 ├── system/                # Platform services, one directory per component
 │   ├── metallb/
-│   ├── ingress-nginx/
+│   ├── envoy-gateway/     # Gateway API implementation (spec 0009)
 │   ├── cert-manager/
 │   ├── sealed-secrets/
 │   ├── storage/           # CSI driver + StorageClasses (spec 0008)
-│   ├── monitoring/        # kube-prometheus-stack, loki (spec 0009)
+│   ├── monitoring/        # kube-prometheus-stack, loki, alloy (spec 0009)
+│   ├── backup/            # Velero (spec 0015)
 │   └── cloudflare-tunnel/ # public exposure (spec 0012)
 └── apps/                  # End-user workloads, one directory per app
 ```
@@ -82,8 +83,8 @@ Each component directory is a Kustomize base with an accompanying Argo CD
 [ApplicationSet](https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/)
 — decided during implementation, recorded here).
 [Sync waves](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
-order the system components (sealed-secrets and MetalLB before ingress,
-ingress before anything with an Ingress resource).
+order the system components (sealed-secrets and MetalLB before the Gateway,
+the Gateway before anything that attaches an `HTTPRoute` to it).
 
 ### Secrets
 

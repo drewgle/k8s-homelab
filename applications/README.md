@@ -1,106 +1,113 @@
 # Applications
 
-This directory contains application deployments and configurations for the homelab infrastructure.
+Everything deployed *onto* the Kubernetes cluster lives here and is
+reconciled by Argo CD from this repository. Nothing in this tree is applied
+by hand.
+
+> **Status: not built yet.** The layout and rules below are the contract
+> defined by [spec 0007](../docs/specs/0007-gitops-bootstrap.md); the
+> directories appear as that spec is implemented. Until then this file
+> describes what will exist, not what does.
+
+## The dividing line
+
+| | Ansible | Argo CD |
+|---|---|---|
+| Style | push, imperative runs | pull, continuously reconciled |
+| Scope | bare metal → Proxmox → Ceph → VMs → Kubernetes + CNI | everything deployed onto the cluster |
+| Ends | when a kubeconfig exists | never |
+
+`infrastructure/` is the first column. This directory is the second.
 
 ## Structure
 
 ```
 applications/
-├── kubernetes/         # Kubernetes manifests and Helm charts
-│   ├── argocd/        # GitOps management
-│   ├── monitoring/    # Prometheus, Grafana, etc.
-│   ├── ingress/       # NGINX, cert-manager
-│   └── storage/       # CSI drivers, storage classes
-├── docker-compose/    # Standalone container applications
-│   ├── monitoring/    # Monitoring stack for non-K8s hosts
-│   └── utilities/     # Development and utility tools
-└── configs/          # Application configuration templates
-    ├── nginx/        # NGINX configurations
-    └── monitoring/   # Monitoring configurations
+├── bootstrap/
+│   ├── argocd/            # Argo CD install (kustomize, pinned version)
+│   └── root.yaml          # App-of-apps: watches system/ and apps/
+├── system/                # Platform services, one directory per component
+│   ├── metallb/
+│   ├── envoy-gateway/     # Gateway API implementation
+│   ├── cert-manager/
+│   ├── sealed-secrets/
+│   ├── storage/           # CSI driver + StorageClasses
+│   ├── monitoring/        # kube-prometheus-stack, Loki, Alloy
+│   ├── backup/            # Velero
+│   └── cloudflare-tunnel/ # public exposure
+└── apps/                  # End-user workloads, one directory per app
 ```
 
-## Deployment Methods
+Each component directory is a Kustomize base plus an Argo CD `Application`
+manifest picked up by the root app.
+[Sync waves](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
+order the system components: sealed-secrets and MetalLB before the Gateway,
+the Gateway before anything that attaches a route to it.
 
-### Kubernetes Applications
-Deploy applications to your Talos Kubernetes cluster:
+## Deployment
+
+There is exactly one imperative step in the whole system, and it is a
+playbook, not a `kubectl apply`:
 
 ```bash
-# Apply specific application
-kubectl apply -k applications/kubernetes/monitoring/
-
-# Apply all applications
-find applications/kubernetes/ -name kustomization.yaml -execdir kubectl apply -k . \;
+ansible-playbook playbooks/kubernetes/01-gitops-bootstrap.yml
 ```
 
-### Docker Compose Applications
-For services running directly on Proxmox hosts or dedicated VMs:
+It installs Argo CD and the root Application. Everything after that is a git
+commit. If you find yourself running `kubectl apply` against this cluster,
+something has gone wrong — the change belongs in git, and Argo CD will
+either apply it or tell you why it can't.
+
+## Secrets
+
+Secrets are committed, encrypted, as
+[SealedSecrets](https://github.com/bitnami-labs/sealed-secrets):
 
 ```bash
-# Deploy monitoring stack
-docker-compose -f applications/docker-compose/monitoring/docker-compose.yml up -d
-
-# Deploy utility services
-docker-compose -f applications/docker-compose/utilities/docker-compose.yml up -d
+kubectl create secret generic my-secret \
+  --dry-run=client --from-literal=key=value -o yaml \
+  | kubeseal --format yaml > applications/apps/my-app/sealed-secret.yaml
 ```
 
-## Application Categories
+The sealing key is the single point of failure for every secret in the repo:
+without it, a rebuilt cluster cannot decrypt anything committed here. Backing
+it up is covered by [spec 0015](../docs/specs/0015-backup-and-recovery.md).
 
-### Core Infrastructure
-- **ArgoCD**: GitOps continuous delivery
-- **cert-manager**: TLS certificate management
-- **NGINX Ingress**: Load balancing and ingress
+Never commit a plain `Secret`. The repo has a
+[pre-commit](../.pre-commit-config.yaml) gitleaks hook, but it is a backstop,
+not the control.
 
-### Monitoring & Observability
-- **Prometheus**: Metrics collection
-- **Grafana**: Dashboards and visualization
-- **AlertManager**: Alert routing and management
-- **Loki**: Log aggregation
+## Which components, and why
 
-### Storage & Backup
-- **Longhorn**: Distributed block storage for K8s
-- **Velero**: Kubernetes backup and restore
-- **MinIO**: S3-compatible object storage
+| Component | Chosen | Rejected, and why |
+|-----------|--------|-------------------|
+| Ingress | Gateway API via Envoy Gateway | ingress-nginx — retired by Kubernetes SIG Network in March 2026, no further security fixes |
+| Log collection | Grafana Alloy | Promtail — end of life March 2026 |
+| Storage | CSI against the existing Proxmox Ceph pool | Longhorn — replication on top of already-replicated disks; Rook — a second Ceph cluster |
+| Load balancing | MetalLB (L2) | Cilium L2 announcements, pending the CNI decision |
 
-### Development Tools
-- **GitLab/Gitea**: Git repository management
-- **Harbor**: Container registry
-- **SonarQube**: Code quality analysis
+The reasoning behind each is in the spec that owns it —
+[0008](../docs/specs/0008-kubernetes-storage.md) for storage,
+[0009](../docs/specs/0009-platform-services.md) for the rest.
 
-## GitOps Integration
+## Conventions
 
-Applications are configured for GitOps deployment using ArgoCD:
+- **Kustomize** for configuration; Helm charts are consumed through it rather
+  than installed directly, so the rendered output stays reviewable
+- **Pin every version** — image tags and chart versions, never `latest`.
+  Renovate opens the bump PRs
+- **Resource requests and limits** on every workload
+- **Health and readiness probes** on every workload
+- A newcomer should be able to read one `system/<component>/` directory and
+  understand that component's role without opening another repo
 
-1. **Application manifests** are stored in `kubernetes/` subdirectories
-2. **ArgoCD applications** automatically sync from this repository
-3. **Configuration changes** are applied via Git commits
-4. **Rollbacks** are handled through ArgoCD UI or CLI
+## Making a service public
 
-## Configuration Management
+Private by default. Public exposure goes through Cloudflare
+([spec 0012](../docs/specs/0012-public-exposure-cloudflare.md)) and requires
+a PR that:
 
-### Secrets
-- Use **sealed-secrets** or **external-secrets** for K8s secrets
-- Store sensitive configuration in **vars.yml** for Ansible-managed apps
-- Never commit secrets to version control
-
-### Environment-Specific Configuration
-- Use **Kustomize** overlays for environment-specific configs
-- Maintain **base** configurations in application directories
-- Override values in environment-specific overlays
-
-## Getting Started
-
-1. **Deploy infrastructure** using Ansible playbooks
-2. **Install ArgoCD** for GitOps management:
-   ```bash
-   kubectl apply -k applications/kubernetes/argocd/
-   ```
-3. **Configure ArgoCD** to watch this repository
-4. **Deploy applications** through ArgoCD or kubectl
-
-## Best Practices
-
-- **Use Kustomize** for configuration management
-- **Pin image tags** for reproducible deployments
-- **Configure resource limits** for all workloads
-- **Implement health checks** and readiness probes
-- **Use service meshes** for advanced traffic management
+1. Adds the hostname to the tunnel ingress ConfigMap
+2. Adds a Cloudflare Access policy, or a README note explaining why the
+   app's own authentication suffices
+3. States what data the service exposes and why public access is needed

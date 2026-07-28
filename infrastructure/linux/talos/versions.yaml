@@ -5,22 +5,26 @@
 # Talos Linux versions
 talos:
   # renovate: datasource=github-releases depName=siderolabs/talos
-  installer: "v1.7.0"
+  installer: "v1.13.7"
   # Talos system extensions (if needed in future)
   extensions: {}
 
-# Kubernetes version - should be compatible with Talos version
+# Kubernetes version - must stay inside the minor series the pinned Talos
+# release targets (Talos 1.13.x targets Kubernetes 1.36.x). A Kubernetes
+# minor bump therefore waits for the matching Talos release.
 kubernetes:
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  version: "v1.29.3"
+  version: "v1.36.3"
 
 # Container runtime versions (informational - managed by Talos)
 containerd:
-  version: "1.7.13"
+  version: "2.2.6"
 
-# CNI versions (if using custom CNI)
+# CNI versions. Talos installs no CNI of its own (spec 0016); these drive the
+# post-bootstrap install. The Cilium value is a Helm chart version, so it
+# carries no leading "v"; the flannel value is a GitHub release tag, so it does.
 cni:
   # renovate: datasource=github-releases depName=flannel-io/flannel
-  flannel: "v0.24.2"
-  # renovate: datasource=github-releases depName=cilium/cilium
-  cilium: "v1.15.1"
+  flannel: "v0.28.8"
+  # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io
+  cilium: "1.19.6"

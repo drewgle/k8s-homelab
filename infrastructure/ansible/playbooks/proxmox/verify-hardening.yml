@@ -60,30 +60,53 @@
     #
     # Firewall Status Checks
     #
-    - name: Check UFW firewall status
-      command: ufw status
-      register: ufw_status
+    - name: Check Proxmox firewall status
+      command: pve-firewall status
+      register: pve_firewall_status
       failed_when: false
       changed_when: false
 
     - name: Record firewall status
       set_fact:
-        verification_results: "{{ verification_results + [{'check': 'UFW Firewall', 'status': 'OK' if 'Status: active' in ufw_status.stdout else 'FAIL', 'details': 'Active' if 'Status: active' in ufw_status.stdout else 'Inactive or not configured'}] }}"
-      when: ufw_status.rc == 0
+        verification_results: "{{ verification_results + [{'check': 'Proxmox Firewall', 'status': 'OK' if 'Status: enabled/running' in pve_firewall_status.stdout else 'FAIL', 'details': pve_firewall_status.stdout_lines | first | default('not installed')}] }}"
 
-    - name: Get UFW rules count
-      shell: ufw status numbered | grep -E '^\s*\[' | wc -l
-      register: ufw_rules_count
+    - name: Check that UFW is not also filtering
+      command: systemctl is-active ufw
+      register: ufw_active
       failed_when: false
       changed_when: false
-      when: "'Status: active' in ufw_status.stdout"
+
+    - name: Record UFW absence
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'No second firewall', 'status': 'OK' if ufw_active.stdout != 'active' else 'FAIL', 'details': 'UFW removed' if ufw_active.stdout != 'active' else 'UFW is active and will double-filter'}] }}"
+
+    - name: Get host firewall rules count
+      shell: |
+        set -o pipefail
+        grep -cE '^(IN|OUT) ' /etc/pve/nodes/{{ inventory_hostname }}/host.fw
+      args:
+        executable: /bin/bash
+      register: pve_rules_count
+      failed_when: false
+      changed_when: false
 
     - name: Record firewall rules
       set_fact:
-        verification_results: "{{ verification_results + [{'check': 'Firewall Rules', 'status': 'INFO', 'details': ufw_rules_count.stdout + ' rules configured'}] }}"
-      when:
-        - ufw_rules_count is defined
-        - ufw_rules_count.rc == 0
+        verification_results: "{{ verification_results + [{'check': 'Firewall Rules', 'status': 'INFO', 'details': pve_rules_count.stdout | default('0') + ' explicit host rules (plus the Proxmox built-in management rules)'}] }}"
+
+    - name: Check the compiled ruleset admits live migration
+      shell: |
+        set -o pipefail
+        pve-firewall compile | grep -c '60000:60050'
+      args:
+        executable: /bin/bash
+      register: migration_rule
+      failed_when: false
+      changed_when: false
+
+    - name: Record live migration rule
+      set_fact:
+        verification_results: "{{ verification_results + [{'check': 'Live migration allowed', 'status': 'OK' if (migration_rule.stdout | int) > 0 else 'FAIL', 'details': 'ports 60000-60050 present in the compiled ruleset' if (migration_rule.stdout | int) > 0 else 'no 60000-60050 rule — migration between nodes will fail'}] }}"
 
     #
     # Fail2Ban Status Checks
@@ -167,7 +190,7 @@
       loop:
         - { name: 'chrony' }
         - { name: 'auditd' }
-        - { name: 'ufw' }
+        - { name: 'pve-firewall' }
 
     #
     # Security Updates Check
@@ -254,7 +277,7 @@
           Next steps:
           • Re-run hardening playbook: ansible-playbook playbooks/proxmox/harden.yml
           • Check SSH config: systemctl status ssh && vi /etc/ssh/sshd_config
-          • Verify firewall: ufw status verbose
+          • Verify firewall: pve-firewall status && pve-firewall compile
           • Review services: systemctl --failed
           {% endif %}
 

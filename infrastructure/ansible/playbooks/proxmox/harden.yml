@@ -14,22 +14,16 @@
     ssh_client_alive_count_max: 2
     ssh_login_grace_time: 30
 
-    # Firewall ports for Proxmox cluster
-    proxmox_firewall_ports:
-      - { port: 22, protocol: tcp, comment: 'SSH' }
-      - { port: 8006, protocol: tcp, comment: 'Proxmox Web Interface' }
-      - { port: 3128, protocol: tcp, comment: 'Proxmox VE Proxy' }
-      - { port: 5900:5999, protocol: tcp, comment: 'VNC Console' }
-      - { port: 5404, protocol: udp, comment: 'Corosync (Multicast)' }
-      - { port: 5405, protocol: udp, comment: 'Corosync' }
-      - { port: 111, protocol: tcp, comment: 'RPC Portmapper' }
-      - { port: 111, protocol: udp, comment: 'RPC Portmapper' }
+    # Hosts allowed to manage the cluster (SSH, web UI, VNC/SPICE consoles,
+    # live migration). Populates the built-in Proxmox "management" IPSet;
+    # every cluster node is added to it automatically below.
+    pve_management_sources: "{{ firewall_management_sources | default([proxmox_cluster_network | default(ceph_public_network)]) }}"
 
-    # Ceph firewall ports (if using Ceph)
+    # Ceph host ports, allowed only from the Ceph networks
     ceph_firewall_ports:
-      - { port: 3300, protocol: tcp, comment: 'Ceph Manager' }
-      - { port: 6789, protocol: tcp, comment: 'Ceph Monitor' }
-      - { port: 6800:7300, protocol: tcp, comment: 'Ceph OSD' }
+      - { port: 3300, comment: 'Ceph monitor (msgr v2)' }
+      - { port: 6789, comment: 'Ceph monitor (msgr v1)' }
+      - { port: '6800:7300', comment: 'Ceph OSD / MGR / MDS' }
 
     # Fail2ban jail configuration
     fail2ban_jails:
@@ -102,55 +96,33 @@
     #
     - name: Firewall Hardening
       block:
-        - name: Install UFW firewall
+        - name: Remove UFW so it cannot double-filter with the PVE firewall
           apt:
             name: ufw
-            state: present
+            state: absent
+            purge: true
 
-        - name: Reset UFW to defaults
-          ufw:
-            state: reset
-
-        - name: Set UFW default policies
-          ufw:
-            direction: "{{ item.direction }}"
-            policy: "{{ item.policy }}"
-          loop:
-            - { direction: incoming, policy: deny }
-            - { direction: outgoing, policy: allow }
-            - { direction: routed, policy: deny }
-
-        - name: Allow Proxmox cluster communication
-          ufw:
-            rule: allow
-            port: "{{ item.port }}"
-            proto: "{{ item.protocol }}"
-            comment: "{{ item.comment }}"
-          loop: "{{ proxmox_firewall_ports }}"
-
-        - name: Allow Ceph cluster communication
-          ufw:
-            rule: allow
-            port: "{{ item.port }}"
-            proto: "{{ item.protocol }}"
-            comment: "{{ item.comment }}"
-            src: "{{ ceph_public_network }}"
-          loop: "{{ ceph_firewall_ports }}"
-          when: ceph_public_network is defined
-
-        - name: Enable UFW firewall
-          ufw:
-            state: enabled
-          notify: restart ufw
-
-        - name: Keep the Proxmox firewall disabled (UFW is the managed firewall)
-          copy:
-            content: |
-              [OPTIONS]
-
-              enable: 0
+        # No backup: — pmxcfs only accepts a fixed set of filenames in these
+        # directories and rejects the timestamped backup copies Ansible would
+        # write alongside them.
+        - name: Write the datacenter firewall configuration
+          template:
+            src: "{{ playbook_dir }}/../../templates/cluster.fw.j2"
             dest: /etc/pve/firewall/cluster.fw
           run_once: true
+          notify: reload pve-firewall
+
+        - name: Write the host firewall configuration
+          template:
+            src: "{{ playbook_dir }}/../../templates/host.fw.j2"
+            dest: "/etc/pve/nodes/{{ inventory_hostname }}/host.fw"
+          notify: reload pve-firewall
+
+        - name: Enable and start the Proxmox firewall service
+          systemd:
+            name: pve-firewall
+            state: started
+            enabled: true
 
     #
     # System Hardening
@@ -440,10 +412,9 @@
         name: ssh
         state: restarted
 
-    - name: restart ufw
-      systemd:
-        name: ufw
-        state: restarted
+    - name: reload pve-firewall
+      command: pve-firewall restart
+      changed_when: true
 
     - name: restart fail2ban
       systemd:

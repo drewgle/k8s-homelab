@@ -8,22 +8,44 @@ github_username: "your-github-username"
 proxmox_cluster_name: "homelab"              # Name for your Proxmox cluster
 # proxmox_cluster_network: "192.168.1.0/24"  # Optional: specific cluster network
 
+# Hosts allowed to manage the nodes (SSH, web UI, consoles, live migration).
+# Populates the Proxmox firewall's "management" IPSet; every inventory node is
+# added automatically. Set this if you administer from a different subnet —
+# a host outside this list loses SSH and web UI access once harden.yml runs.
+firewall_management_sources:
+  - "192.168.1.0/24"
+
 # Ceph cluster configuration
 ceph_public_network: "192.168.1.0/24"    # Network for client communications
 ceph_cluster_network: "10.0.1.0/24"      # Network for cluster communications (optional, can be same as public)
 
-# Shared Kubernetes cluster configuration (used by both Talos and Flatcar)
-kubernetes_cluster_name: "homelab-k8s"                       # Name for your Kubernetes cluster
-kubernetes_cluster_endpoint: "https://192.168.100.201:6443"   # Control plane endpoint (should match VLAN network)
+# Shared Kubernetes configuration (applies to both node OSes)
 kubernetes_dns_domain: "cluster.local"                        # Kubernetes cluster DNS domain
-kubernetes_cni: "flannel"                                     # Container Network Interface: flannel, cilium
+kubernetes_cni: "cilium"                                      # CNI: cilium (see spec 0016) or flannel. Must match on both stacks.
 kubernetes_install_disk: "/dev/sda"                           # Disk for OS installation
-
-# Shared Kubernetes network configuration
-kubernetes_pod_subnet: "10.244.0.0/16"                        # Pod CIDR subnet
-kubernetes_service_subnet: "10.96.0.0/12"                     # Service CIDR subnet
-kubernetes_cluster_dns: "10.96.0.10"                          # Cluster DNS service IP
 # kubernetes_network_interface: "eth0"                         # Optional: specific network interface
+
+# Talos and Flatcar are separate clusters with no overlapping addresses, so
+# both can run at the same time (spec 0010 compares them side by side). Node
+# IPs live in inventory.yaml; everything that must not collide is below.
+# The cluster endpoints are floating VIPs, not node addresses: the endpoint is
+# baked into the PKI and every kubeconfig, so pointing it at one node means
+# three control planes buy quorum and nothing else (spec 0016, CNI-09).
+# Each VIP must be free, on the VM VLAN, and outside the MetalLB pool.
+talos_cluster_name: "talos-homelab"
+talos_vip: "192.168.100.200"                                  # Elected via etcd by Talos itself
+talos_cluster_endpoint: "https://192.168.100.200:6443"
+talos_pod_subnet: "10.244.0.0/16"
+talos_service_subnet: "10.96.0.0/12"                          # Covers 10.96-10.111
+talos_cluster_dns: "10.96.0.10"
+
+flatcar_cluster_name: "flatcar-homelab"
+flatcar_vip: "192.168.100.220"                                # Held by kube-vip
+flatcar_vip_interface: "eth0"                                 # NIC kube-vip announces on; check with `ip route get 1.1.1.1`
+flatcar_cluster_endpoint: "https://192.168.100.220:6443"
+flatcar_pod_subnet: "10.245.0.0/16"
+flatcar_service_subnet: "10.112.0.0/12"                       # Covers 10.112-10.127
+flatcar_cluster_dns: "10.112.0.10"
 
 # Shared VM provisioning on Proxmox
 vm_vlan_id: 100                                               # VLAN ID for VM network isolation
@@ -33,11 +55,12 @@ vm_subnet: "192.168.100.0/24"                                 # VM network CIDR 
 vm_cidr_bits: "24"                                           # Network CIDR bits (e.g., /24)
 vm_storage: "local-lvm"                                       # Proxmox storage for VM disks
 
-# Shared VM specifications
-vm_cp_cores: 4                                               # CPU cores for control plane VMs
+# Shared VM specifications. Workers carry the workloads, so they get the
+# cores; control planes are mostly etcd and API server and stay small.
+vm_cp_cores: 2                                               # CPU cores for control plane VMs
 vm_cp_memory: 4096                                           # Memory (MB) for control plane VMs
 vm_cp_disk_size: "50G"                                       # Disk size for control plane VMs
-vm_worker_cores: 2                                           # CPU cores for worker VMs
+vm_worker_cores: 4                                           # CPU cores for worker VMs
 vm_worker_memory: 8192                                       # Memory (MB) for worker VMs
 vm_worker_disk_size: "100G"                                  # Disk size for worker VMs
 

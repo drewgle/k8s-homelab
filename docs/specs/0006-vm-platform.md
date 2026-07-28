@@ -30,23 +30,27 @@ Talos and Flatcar provisioning playbooks so the node-OS evaluation (spec
   ISO MUST be present on every node (downloaded in the prepare play) so any
   placement works.
 - **VMP-04** Every Kubernetes node host in inventory MUST define a
-  cluster-unique `vm_id`. Talos uses 2xx, Flatcar 3xx; both map to the same
-  IPs (see VMP-07).
+  cluster-unique `vm_id`. Talos uses 2xx, Flatcar 3xx.
 - **VMP-05** VM disks are created on `vm_storage` (default `local-lvm` —
   which is why BMP-06 mandates the ext4+LVM install).
 - **VMP-06** VM creation and start are idempotent: an existing `vm_id` on
   the target node short-circuits creation; a running VM short-circuits
   start. Re-running a provision playbook is safe.
-- **VMP-07** Exclusivity invariant: Talos and Flatcar node definitions share
-  the same IP addresses, so only one stack may be provisioned at a time.
-  Switching stacks goes through `remove-vms.yml -e vm_type=<talos|flatcar>`.
+- **VMP-07** Coexistence invariant: the two stacks MUST NOT collide on any
+  address. Talos takes `192.168.100.201-213` with pod CIDR `10.244.0.0/16`
+  and service CIDR `10.96.0.0/12`; Flatcar takes `192.168.100.221-233` with
+  `10.245.0.0/16` and `10.112.0.0/12`. Both may therefore run at once, which
+  is what makes the side-by-side comparison in spec
+  [0010](0010-node-os-evaluation.md) possible; capacity, not addressing, is
+  the limit. `remove-vms.yml -e vm_type=<talos|flatcar>` tears down one stack
+  without touching the other.
 - **VMP-08** Teardown (`remove-vms.yml`) MUST work across all Proxmox nodes
   (each node removes the target VMs that exist locally), require interactive
   confirmation unless `-e force=true`, destroy disks (`qm destroy --purge`),
   and clean up cloud-init/ignition snippets.
 - **VMP-09** Provisioning is only complete when each VM answers on its
   OS-appropriate port:
-  [Talos maintenance API](https://www.talos.dev/v1.7/learn-more/talos-network-connectivity/)
+  [Talos maintenance API](https://www.talos.dev/latest/learn-more/talos-network-connectivity/)
   (50000/tcp) or Flatcar SSH (22/tcp).
 - **VMP-10** VM hardware baseline: q35 machine type, host CPU, virtio-scsi
   with iothread, serial console (`--serial0 socket --vga serial0`), QEMU
@@ -69,14 +73,17 @@ exists).
 - [ ] All VMs reach their readiness port (VMP-09) within the playbook's
       timeout.
 - [ ] `remove-vms.yml` empties every node of that stack's VMs and the
-      snippets directory of its configs; the opposite stack can then
-      provision onto the same IPs.
+      snippets directory of its configs, and leaves the other stack running.
+- [ ] Both stacks provisioned at once: 12 VMs, no address conflict, both
+      clusters reachable on their own endpoints.
 
 ## Known limitations
 
-- Default sizing (3× 4GB control plane + 3× 8GB workers = 36GB) exceeds one
-  16GB node — round-robin placement is load distribution, not a scheduler;
-  capacity math is the operator's job.
+- Default sizing per stack (3× 4GB control plane + 3× 8GB workers = 36GB)
+  exceeds one 16GB node, and running both stacks at once needs 72GB against
+  48GB of physical RAM — so a side-by-side comparison means shrinking the
+  worker set or the memory sizing first. Round-robin placement is load
+  distribution, not a scheduler; capacity math is the operator's job.
 - Placement is index-based round-robin: changing the Proxmox node count
   changes where re-created VMs land (existing VMs are untouched; a duplicate
   `vm_id` on another node fails loudly at `qm create`).

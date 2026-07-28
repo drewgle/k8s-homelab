@@ -20,7 +20,7 @@ machine:
       validSubnets:
         - {{ vm_subnet | default('192.168.100.0/24') }}
     clusterDNS:
-      - {{ kubernetes_cluster_dns | default('10.96.0.10') }}
+      - {{ talos_cluster_dns | default('10.96.0.10') }}
   time:
     disabled: false
     servers:
@@ -65,16 +65,23 @@ cluster:
   id: {{ talos_secrets.cluster.id }}
   secret: {{ talos_secrets.cluster.secret }}
   controlPlane:
-    endpoint: {{ kubernetes_cluster_endpoint }}
-  clusterName: {{ kubernetes_cluster_name | default('homelab-k8s') }}
+    endpoint: {{ talos_cluster_endpoint }}
+  clusterName: {{ talos_cluster_name | default('homelab-k8s') }}
   network:
     dnsDomain: {{ kubernetes_dns_domain | default('cluster.local') }}
     podSubnets:
-      - {{ kubernetes_pod_subnet | default('10.244.0.0/16') }}
+      - {{ talos_pod_subnet | default('10.244.0.0/16') }}
     serviceSubnets:
-      - {{ kubernetes_service_subnet | default('10.96.0.0/12') }}
+      - {{ talos_service_subnet | default('10.96.0.0/12') }}
     cni:
-      name: {{ kubernetes_cni | default('flannel') }}
+{% if kubernetes_cni | default('cilium') == 'cilium' %}
+      # See spec 0016, CNI-02/CNI-03.
+      name: none
+{% else %}
+      name: {{ kubernetes_cni }}
+{% endif %}
+  proxy:
+    disabled: {{ (kubernetes_cni | default('cilium') == 'cilium') | lower }}
   token: {{ talos_secrets.secrets.bootstraptoken }}
   ca:
     crt: {{ talos_secrets.certs.k8s.crt }}

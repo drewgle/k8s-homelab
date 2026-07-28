@@ -137,19 +137,21 @@ all:
 Configure Talos settings in `vars.yml`:
 
 The Talos playbooks share the `kubernetes_*` and `vm_*` variables with the
-Flatcar playbooks — see `vars.yml.example` for the full list:
+Flatcar playbooks; anything that would collide between the two clusters is
+named per stack. See `vars.yml.example` for the full list:
 
 ```yaml
-# Kubernetes cluster configuration (shared with Flatcar)
-kubernetes_cluster_name: "homelab-k8s"
-kubernetes_cluster_endpoint: "https://192.168.100.201:6443"
+# Shared with Flatcar
 kubernetes_dns_domain: "cluster.local"
-kubernetes_cni: "flannel"  # or "cilium"
+kubernetes_cni: "cilium"   # or "flannel" — see spec 0016
 kubernetes_install_disk: "/dev/sda"
 
-# Network configuration
-kubernetes_pod_subnet: "10.244.0.0/16"
-kubernetes_service_subnet: "10.96.0.0/12"
+# Talos-only — Flatcar has its own flatcar_* equivalents
+talos_cluster_name: "talos-homelab"
+talos_vip: "192.168.100.200"                          # etcd-elected control plane VIP
+talos_cluster_endpoint: "https://192.168.100.200:6443"
+talos_pod_subnet: "10.244.0.0/16"
+talos_service_subnet: "10.96.0.0/12"
 
 # Proxmox VM provisioning (shared with Flatcar)
 vm_vlan_id: 100
@@ -191,9 +193,9 @@ Versions are managed through Renovate in `infrastructure/linux/talos/versions.ya
 
 ```yaml
 talos:
-  installer: "v1.7.0"  # Updated by Renovate
+  installer: "v1.13.7"  # Updated by Renovate
 kubernetes:
-  version: "v1.29.3"   # Updated by Renovate
+  version: "v1.36.3"    # Updated by Renovate
 ```
 
 ## Workflow Example

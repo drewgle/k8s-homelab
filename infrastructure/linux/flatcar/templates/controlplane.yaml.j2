@@ -76,7 +76,7 @@ storage:
             mode: Webhook
           cgroupDriver: systemd
           clusterDNS:
-            - {{ kubernetes_cluster_dns }}
+            - {{ flatcar_cluster_dns }}
           clusterDomain: {{ kubernetes_dns_domain }}
           cpuManagerReconcilePeriod: 0s
           evictionPressureTransitionPeriod: 0s
@@ -94,6 +94,76 @@ storage:
           syncFrequency: 0s
           volumeStatsAggPeriod: 0s
 
+{% if flatcar_vip is defined %}
+    # kube-vip: holds the control plane VIP so losing one control plane does
+    # not take the API away from every client (spec 0016, CNI-09). Talos does
+    # this with a single vip.ip stanza; kubeadm needs a component.
+    #
+    # This references admin.conf, which is the steady state. kubeadm >= 1.29
+    # does not create a usable admin.conf until after `kubeadm init`, so
+    # 02-cluster-bootstrap.yml points this at super-admin.conf for the
+    # duration of init on the first control plane and switches it back after.
+    - path: /etc/kubernetes/manifests/kube-vip.yaml
+      mode: 0600
+      contents:
+        inline: |
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kube-vip
+            namespace: kube-system
+          spec:
+            hostNetwork: true
+            containers:
+              - name: kube-vip
+                image: ghcr.io/kube-vip/kube-vip:{{ versions.kube_vip.version }}
+                imagePullPolicy: IfNotPresent
+                args: ["manager"]
+                env:
+                  - name: address
+                    value: "{{ flatcar_vip }}"
+                  - name: port
+                    value: "6443"
+                  - name: vip_arp
+                    value: "true"
+                  - name: vip_interface
+                    value: "{{ flatcar_vip_interface | default('eth0') }}"
+                  - name: vip_subnet
+                    value: "32"
+                  - name: cp_enable
+                    value: "true"
+                  - name: cp_namespace
+                    value: kube-system
+                  - name: vip_ddns
+                    value: "false"
+                  # MetalLB owns Service load balancing (spec 0009); kube-vip
+                  # only holds the control plane address.
+                  - name: svc_enable
+                    value: "false"
+                  - name: vip_leaderelection
+                    value: "true"
+                  - name: vip_leaseduration
+                    value: "5"
+                  - name: vip_renewdeadline
+                    value: "3"
+                  - name: vip_retryperiod
+                    value: "1"
+                securityContext:
+                  capabilities:
+                    add: ["NET_ADMIN", "NET_RAW", "SYS_TIME"]
+                volumeMounts:
+                  - mountPath: /etc/kubernetes/admin.conf
+                    name: kubeconfig
+            hostAliases:
+              - hostnames:
+                  - kubernetes
+                ip: 127.0.0.1
+            volumes:
+              - name: kubeconfig
+                hostPath:
+                  path: /etc/kubernetes/admin.conf
+
+{% endif %}
     # kubeadm configuration
     - path: /etc/kubernetes/kubeadm-config.yaml
       mode: 0644
@@ -102,10 +172,11 @@ storage:
           apiVersion: kubeadm.k8s.io/v1beta3
           kind: ClusterConfiguration
           kubernetesVersion: {{ kubernetes_version }}
-          controlPlaneEndpoint: {{ kubernetes_cluster_endpoint }}
+          # kubeadm wants host:port here, not a URL — the scheme is stripped.
+          controlPlaneEndpoint: {{ flatcar_cluster_endpoint | regex_replace('^https?://', '') }}
           networking:
-            podSubnet: {{ kubernetes_pod_subnet }}
-            serviceSubnet: {{ kubernetes_service_subnet }}
+            podSubnet: {{ flatcar_pod_subnet }}
+            serviceSubnet: {{ flatcar_service_subnet }}
           dns:
             type: CoreDNS
           etcd:
@@ -118,7 +189,7 @@ storage:
               - {{ hostvars[host]['ansible_host'] }}
               - {{ host }}
 {% endfor %}
-              - {{ kubernetes_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
+              - {{ flatcar_cluster_endpoint | regex_replace('^https?://') | regex_replace(':.*$') }}
           controllerManager: {}
           scheduler: {}
           ---
