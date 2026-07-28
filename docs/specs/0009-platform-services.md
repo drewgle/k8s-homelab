@@ -11,9 +11,9 @@ storage depends on [0008](0008-kubernetes-storage.md)
 The architecture doc names the target service stack (ingress, cert-manager,
 Prometheus + Grafana, Loki) but the cluster has no load-balancer
 implementation, no ingress, no TLS, and no observability. This spec defines
-the minimum platform layer that end-user applications (and the Argo CD UI
-itself) build on. Everything here deploys through the GitOps tree from spec
-0007 under `applications/system/`.
+the minimum platform layer that end-user applications (and the GitOps
+dashboard itself) build on. Everything here deploys through the GitOps tree
+from spec 0007 under `applications/system/`.
 
 Two components an earlier draft of this spec named are no longer viable and
 have been replaced below:
@@ -36,8 +36,8 @@ moment to change them.
 - Services get stable LoadBalancer IPs on the VM VLAN without a cloud
   provider.
 - HTTPS ingress for everything with real, publicly trusted Let's Encrypt
-  certificates (goal 6), Argo CD first — no browser warnings, no CA imports
-  on client machines.
+  certificates (goal 6), the GitOps dashboard first — no browser warnings, no
+  CA imports on client machines.
 - Metrics, dashboards, and logs for the cluster and its workloads.
 - Each component is a self-contained directory a newcomer can read in
   isolation (organization goal).
@@ -58,9 +58,18 @@ moment to change them.
 
 ## Design
 
-Sync-wave ordered components under `applications/system/`:
+Components under `applications/system/`, ordered by `dependsOn` between their
+Flux Kustomizations (spec [0007](0007-gitops-bootstrap.md)). Flux gates each
+dependent on its dependency passing health checks, so the ordering below is
+enforced rather than merely intended:
 
-### MetalLB (wave 1)
+```
+metallb ──┬──► envoy-gateway ──┬──► gitops-dashboard
+          └──► cert-manager ───┘
+storage (0008) ──► kube-prometheus-stack ──► loki + alloy
+```
+
+### MetalLB (depends on nothing)
 
 - [L2 mode](https://metallb.io/concepts/layer2/) on the VM VLAN. Address
   pool carved from `vm_subnet` outside the
@@ -68,7 +77,7 @@ Sync-wave ordered components under `applications/system/`:
   other network values in `vars.yml.example` and mirrored in the manifest
   (single source documented as the manifest; vars.yml comment points to it).
 
-### Envoy Gateway (wave 2)
+### Envoy Gateway (depends on MetalLB)
 
 - [Envoy Gateway](https://gateway.envoyproxy.io/) as the
   [Gateway API](https://gateway-api.sigs.k8s.io/) implementation: the Gateway
@@ -100,7 +109,7 @@ domain's DNS is hosted on Cloudflare (also a prerequisite for
 dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 `vars.yml.example` changes from `homelab.local` to this real domain.
 
-### cert-manager (wave 2)
+### cert-manager (depends on MetalLB)
 
 - ACME `ClusterIssuer` against Let's Encrypt using the
   [**DNS-01** solver with the Cloudflare API](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/).
@@ -113,7 +122,8 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
   avoids prod [rate limits](https://letsencrypt.org/docs/rate-limits/)) and
   `letsencrypt-prod`.
 - [Cloudflare API token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
-  scoped to `Zone:DNS:Edit` on this one zone only, stored as a SealedSecret.
+  scoped to `Zone:DNS:Edit` on this one zone only, stored as a SOPS-encrypted
+  Secret.
 - One wildcard `Certificate` for `*.internal.<domain>` in the
   `envoy-gateway` namespace, referenced by the shared Gateway's HTTPS
   listener — individual apps then need no certificate configuration at all.
@@ -134,7 +144,7 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 - [external-dns](https://github.com/kubernetes-sigs/external-dns) is
   deliberately deferred; revisit if record count grows.
 
-### kube-prometheus-stack (wave 3)
+### kube-prometheus-stack (depends on storage)
 
 - [Helm chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
   via Kustomize: Prometheus, Grafana, Alertmanager, node-exporter,
@@ -142,14 +152,14 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 - Persistence on the `ceph-rbd` StorageClass (spec 0008); retention sized
   for homelab (e.g. 15 days / 20 GiB).
 - Grafana behind an `HTTPRoute` on the shared Gateway; admin password as a
-  SealedSecret.
+  SOPS-encrypted Secret.
 - Scrape the Proxmox hosts too
   ([pve-exporter](https://github.com/prometheus-pve/prometheus-pve-exporter))
   — ties the k8s and
   infrastructure learning together and gives the presentation a
   full-stack dashboard.
 
-### Loki + Grafana Alloy (wave 3)
+### Loki + Grafana Alloy (depends on kube-prometheus-stack)
 
 - Single-binary [Loki](https://grafana.com/docs/loki/latest/) mode with
   `ceph-rbd` persistence.
@@ -161,19 +171,30 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
   Prometheus scraping as-is.
 - Grafana datasource pre-provisioned.
 
-### Argo CD route (wave 4)
+### GitOps dashboard (depends on Envoy Gateway and cert-manager)
 
-- `HTTPRoute` on the shared Gateway for the Argo CD UI, closing spec 0007's
-  port-forward-only gap. Argo CD terminates its own TLS by default; run the
-  server with `--insecure` behind the Gateway so there is exactly one TLS
-  termination point.
+Flux ships no UI, so spec 0007 leaves the cluster CLI-only. This closes that
+gap: deploy one Flux dashboard and give it an `HTTPRoute` on the shared
+Gateway.
+
+- [Headlamp](https://headlamp.dev/) with its Flux plugin is the default
+  choice — it renders the reconciliation tree *and* is a general-purpose
+  cluster UI, so it earns its keep beyond GitOps.
+  [Capacitor](https://github.com/gimlet-io/capacitor) is the smaller
+  alternative if Headlamp proves heavier than it's worth.
+- TLS terminates once, at the Gateway; the dashboard serves plain HTTP behind
+  it.
+- Access control matters here — a cluster dashboard is a privileged surface.
+  It stays LAN-only (spec [0012](0012-public-exposure-cloudflare.md)
+  explicitly excludes it from public exposure) and uses the dashboard's own
+  OIDC or token authentication, not an unauthenticated route.
 
 ## Implementation plan
 
 1. MetalLB + Envoy Gateway + cert-manager with the Let's Encrypt issuers
    (staging first, then prod), the wildcard certificate, and the shared
-   Gateway; Argo CD `HTTPRoute`. (This makes the GitOps loop pleasant to use
-   daily.)
+   Gateway; the GitOps dashboard `HTTPRoute`. (This makes the GitOps loop
+   pleasant to use daily.)
 2. kube-prometheus-stack, then Loki + Alloy.
 3. pve-exporter and a combined "homelab overview" Grafana dashboard
    (Proxmox + Ceph + k8s) — this dashboard is a headline demo for the
@@ -183,7 +204,7 @@ dedicated subdomain, e.g. `*.internal.<domain>`; the `domain_name` value in
 
 ## Acceptance criteria
 
-- [ ] `https://argocd.internal.<domain>` loads with a valid Let's Encrypt
+- [ ] `https://flux.internal.<domain>` loads with a valid Let's Encrypt
       certificate — no browser warning on an untouched client machine — from
       a fresh bootstrap, via GitOps only.
 - [ ] No inbound port on the router was opened to achieve any of this, and

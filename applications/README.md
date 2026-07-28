@@ -1,8 +1,8 @@
 # Applications
 
-Everything deployed *onto* the Kubernetes cluster lives here and is
-reconciled by Argo CD from this repository. Nothing in this tree is applied
-by hand.
+Everything deployed *onto* the Kubernetes cluster lives here and is reconciled
+by [Flux](https://fluxcd.io/) from this repository. Nothing in this tree is
+applied by hand.
 
 > **Status: not built yet.** The layout and rules below are the contract
 > defined by [spec 0007](../docs/specs/0007-gitops-bootstrap.md); the
@@ -11,7 +11,7 @@ by hand.
 
 ## The dividing line
 
-| | Ansible | Argo CD |
+| | Ansible | Flux |
 |---|---|---|
 | Style | push, imperative runs | pull, continuously reconciled |
 | Scope | bare metal → Proxmox → Ceph → VMs → Kubernetes + CNI | everything deployed onto the cluster |
@@ -23,14 +23,14 @@ by hand.
 
 ```
 applications/
-├── bootstrap/
-│   ├── argocd/            # Argo CD install (kustomize, pinned version)
-│   └── root.yaml          # App-of-apps: watches system/ and apps/
+├── flux/
+│   ├── operator/          # Flux Operator chart pin (applied once by Ansible)
+│   ├── instance.yaml      # FluxInstance: Flux version, components, git source
+│   └── kustomizations/    # One Flux Kustomization per component, with dependsOn
 ├── system/                # Platform services, one directory per component
 │   ├── metallb/
 │   ├── envoy-gateway/     # Gateway API implementation
 │   ├── cert-manager/
-│   ├── sealed-secrets/
 │   ├── storage/           # CSI driver + StorageClasses
 │   ├── monitoring/        # kube-prometheus-stack, Loki, Alloy
 │   ├── backup/            # Velero
@@ -38,11 +38,17 @@ applications/
 └── apps/                  # End-user workloads, one directory per app
 ```
 
-Each component directory is a Kustomize base plus an Argo CD `Application`
-manifest picked up by the root app.
-[Sync waves](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
-order the system components: sealed-secrets and MetalLB before the Gateway,
-the Gateway before anything that attaches a route to it.
+Flux upgrades itself: the version and component set live in
+`flux/instance.yaml`, reconciled by the Flux Operator, and Renovate bumps them
+like any other dependency.
+
+Each component directory is a Kustomize base. Ordering is a dependency graph,
+not a sequence — each component's Flux
+[Kustomization](https://fluxcd.io/flux/components/kustomize/kustomizations/)
+declares `dependsOn`, and Flux holds a dependent back until its dependency
+passes its health checks. MetalLB before Envoy Gateway; cert-manager before
+anything requesting a Certificate; the Gateway before anything attaching a route
+to it.
 
 ## Deployment
 
@@ -53,40 +59,79 @@ playbook, not a `kubectl apply`:
 ansible-playbook playbooks/kubernetes/01-gitops-bootstrap.yml
 ```
 
-It installs Argo CD and the root Application. Everything after that is a git
-commit. If you find yourself running `kubectl apply` against this cluster,
-something has gone wrong — the change belongs in git, and Argo CD will
-either apply it or tell you why it can't.
+It installs the Flux Operator, creates the age decryption key Secret, and
+applies the `FluxInstance`. Everything after that is a git commit. If you find
+yourself running `kubectl apply` against this cluster, something has gone wrong
+— the change belongs in git, and Flux will either apply it or tell you why it
+can't.
+
+Checking on it:
+
+```bash
+flux get all -A
+```
+
+```bash
+flux events --for Kustomization/monitoring
+```
+
+To see what a change *would* do before pushing it:
+
+```bash
+flux diff kustomization monitoring --path applications/system/monitoring
+```
 
 ## Secrets
 
-Secrets are committed, encrypted, as
-[SealedSecrets](https://github.com/bitnami-labs/sealed-secrets):
+Secrets are committed encrypted with [SOPS](https://github.com/getsops/sops)
+and an [age](https://github.com/FiloSottile/age) key. Flux's
+kustomize-controller decrypts them at reconcile time; there is no in-cluster
+sealing controller.
+
+Creating one:
 
 ```bash
 kubectl create secret generic my-secret \
   --dry-run=client --from-literal=key=value -o yaml \
-  | kubeseal --format yaml > applications/apps/my-app/sealed-secret.yaml
+  | sops --encrypt /dev/stdin > applications/apps/my-app/secret.sops.yaml
 ```
 
-The sealing key is the single point of failure for every secret in the repo:
-without it, a rebuilt cluster cannot decrypt anything committed here. Backing
-it up is covered by [spec 0015](../docs/specs/0015-backup-and-recovery.md).
+Changing one later — this decrypts in place, opens your editor, and re-encrypts
+on save:
 
-Never commit a plain `Secret`. The repo has a
-[pre-commit](../.pre-commit-config.yaml) gitleaks hook, but it is a backstop,
+```bash
+sops applications/apps/my-app/secret.sops.yaml
+```
+
+The `.sops.yaml` creation rules at the repo root encrypt only `data` and
+`stringData`, so kind, name and namespace stay readable in diffs and
+`kustomize build` still parses the file. The age *public* key is committed
+there in cleartext — anyone can encrypt a new secret without holding the
+private key.
+
+The age private key is stored in the Ansible Vault-encrypted variables file, so
+the vault password is the single out-of-band secret for the entire system.
+Losing it means every committed secret is undecryptable and the "rebuild from
+git" claim is false; backing it up is
+[spec 0015](../docs/specs/0015-backup-and-recovery.md).
+
+Never commit a plain `Secret`. CI rejects unencrypted ones and the repo has a
+[pre-commit](../.pre-commit-config.yaml) gitleaks hook, but both are backstops,
 not the control.
 
 ## Which components, and why
 
 | Component | Chosen | Rejected, and why |
 |-----------|--------|-------------------|
+| GitOps | Flux | Argo CD — SOPS needs a repo-server plugin, ~4× the memory footprint, no native Renovate manager ([spec 0007](../docs/specs/0007-gitops-bootstrap.md)) |
+| Secrets | SOPS + age | sealed-secrets — cluster-bound key, and a sealed value cannot be read back even by its author |
 | Ingress | Gateway API via Envoy Gateway | ingress-nginx — retired by Kubernetes SIG Network in March 2026, no further security fixes |
 | Log collection | Grafana Alloy | Promtail — end of life March 2026 |
 | Storage | CSI against the existing Proxmox Ceph pool | Longhorn — replication on top of already-replicated disks; Rook — a second Ceph cluster |
 | Load balancing | MetalLB (L2) | Cilium L2 announcements, pending the CNI decision |
 
 The reasoning behind each is in the spec that owns it —
+[0007](../docs/specs/0007-gitops-bootstrap.md) for GitOps and secrets,
 [0008](../docs/specs/0008-kubernetes-storage.md) for storage,
 [0009](../docs/specs/0009-platform-services.md) for the rest.
 

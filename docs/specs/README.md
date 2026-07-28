@@ -41,7 +41,7 @@ In dependency order, bottom of the stack first:
 | [0013](0013-talos-cluster-lifecycle.md) | Talos Kubernetes cluster lifecycle | Implemented | Learning (k8s, talos), distro evaluation |
 | [0014](0014-flatcar-cluster-lifecycle.md) | Flatcar Kubernetes cluster lifecycle | Implemented | Learning (k8s, kubeadm), distro evaluation |
 | [0016](0016-cluster-networking-cilium.md) | Cluster networking: Cilium | Accepted | Learning (k8s, networking), presentation |
-| [0007](0007-gitops-bootstrap.md) | GitOps bootstrap with Argo CD | Draft | GitOps, learning, organization |
+| [0007](0007-gitops-bootstrap.md) | GitOps bootstrap with Flux | Draft | GitOps, learning, organization |
 | [0008](0008-kubernetes-storage.md) | Kubernetes persistent storage on Ceph | Draft | GitOps, learning (ceph) |
 | [0009](0009-platform-services.md) | Core platform services | Draft | GitOps, learning (k8s) |
 | [0012](0012-public-exposure-cloudflare.md) | Public service exposure via Cloudflare | Draft | TLS/exposure, GitOps |

@@ -57,7 +57,7 @@ should be re-validated during implementation and this spec updated.
 - A dedicated, least-privilege
   [PVE API token](https://pve.proxmox.com/wiki/User_Management) for the CSI
   driver (VM.Audit, Datastore.Allocate on the Ceph storage only), stored as
-  a SealedSecret.
+  a SOPS-encrypted Secret.
 - Network prerequisite: the VM VLAN (`vm_subnet`) must reach the management
   network on TCP 8006 only. Documented in
   [NETWORK.md](../../infrastructure/linux/talos/NETWORK.md) and enforced no
@@ -72,14 +72,14 @@ should be re-validated during implementation and this spec updated.
 1. Create the PVE API token + role via an addition to the proxmox playbooks
    (so it is reproducible, not clicked together in the UI).
 2. `applications/system/storage/` kustomization with the driver and both
-   StorageClasses; SealedSecret for the token.
+   StorageClasses; SOPS-encrypted Secret for the token.
 3. Network/firewall documentation update.
 4. Smoke-test workload (PVC + writer pod) used for the acceptance criteria,
    kept under `applications/apps/storage-smoke/` or as a documented one-off.
 
 ## Acceptance criteria
 
-- [ ] `kubectl apply` is never run manually: the driver arrives via Argo CD.
+- [ ] `kubectl apply` is never run manually: the driver arrives via Flux.
 - [ ] A PVC against `ceph-rbd` binds, and its data survives deleting and
       rescheduling the consuming pod onto a different node.
 - [ ] The backing image is visible in the Proxmox/Ceph tooling

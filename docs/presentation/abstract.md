@@ -9,12 +9,12 @@ This talk is about the other approach: an entire homelab defined in one git
 repository. We start at blank hardware and an unattended-install USB stick,
 build a Proxmox cluster with Ceph storage, bring up Kubernetes two different
 ways — Talos Linux and Flatcar Container Linux, so we can compare what it's
-actually like to *operate* each one — and hand the cluster over to Argo CD,
+actually like to *operate* each one — and hand the cluster over to Flux,
 which reconciles everything above it straight from the repo.
 
 Then we delete it all and watch it come back.
 
-You'll see the tools (Ansible, Proxmox, Ceph, Talos, Argo CD, Renovate), the
+You'll see the tools (Ansible, Proxmox, Ceph, Talos, Flux, Renovate), the
 tradeoffs behind each choice, and the parts that are genuinely annoying. No
 homelab background needed, and everything demonstrated is in a public repo
 you can clone and run against your own hardware.

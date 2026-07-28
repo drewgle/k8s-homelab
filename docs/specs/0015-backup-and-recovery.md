@@ -57,8 +57,11 @@ The material without which a *running* cluster becomes unadministerable:
 
 - Talos: `infrastructure/linux/talos/secrets.yaml` (spec 0013, TALOS-01).
 - Flatcar: the kubeadm PKI in `/etc/kubernetes/pki` on a control plane.
-- The sealed-secrets sealing key (spec 0007) — without it, every committed
-  SealedSecret is undecryptable and the "rebuild from git" claim is false.
+- The SOPS age private key (spec 0007) — without it, every committed
+  encrypted Secret is undecryptable and the "rebuild from git" claim is false.
+  It lives in the Ansible Vault-encrypted variables file, so in practice the
+  thing to protect is the **Ansible Vault password**, which is also the
+  out-of-band secret for the infrastructure layer. One secret, not two.
 
 All three are small, static, and secret. They go to an
 [age](https://github.com/FiloSottile/age)-encrypted archive written by a
@@ -79,7 +82,7 @@ should be journaled there.
 ### 3. Kubernetes objects and volumes — Velero
 
 [Velero](https://velero.io/) in `applications/system/backup/`, deployed by
-Argo CD like everything else:
+Flux like everything else:
 
 - Backend: an S3-compatible bucket. Two candidates, decided at
   implementation: a
@@ -115,7 +118,7 @@ with measured values afterwards:
 
 | Scenario | Target | Path |
 |----------|--------|------|
-| Pod or workload broken | minutes | Argo CD rollback |
+| Pod or workload broken | minutes | git revert, Flux reconciles |
 | One Kubernetes node lost | < 1 hour | re-provision (0006) + rejoin (0013/0014) |
 | One Proxmox node lost | < 4 hours | re-image (0001) + rejoin + Ceph rebalance |
 | Cluster lost, hardware intact | < 4 hours | re-provision + bootstrap + Velero restore |
@@ -156,8 +159,9 @@ declared in git.
 - Ceph RGW versus an external object store as the Velero backend — an
   in-cluster backend is convenient and shares a failure domain with the data.
   The offsite requirement stands either way; RGW is a tier, not an answer.
-- Whether the sealed-secrets key backup (spec 0007) should be folded into
-  section 1 outright, or whether spec 0007's key handling should be replaced
-  with an external secret store, which would make that row disappear.
+- Whether the Ansible Vault password (which now transitively protects the SOPS
+  age key, spec 0007) needs anything beyond a password manager plus one
+  offsite copy. An external secret store would remove it from this spec
+  entirely, at the cost of a dependency the homelab does not otherwise need.
 - Retention: how long is worth keeping for a homelab, given that the storage
   cost is real and the compliance requirement is zero.

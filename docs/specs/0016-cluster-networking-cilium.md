@@ -79,10 +79,10 @@ Cilium wins on four counts specific to this repo:
   These are Talos-specific and MUST NOT be copied to the Flatcar install.
 - **CNI-07** Cilium MUST NOT take over load balancing or ingress. MetalLB and
   Envoy Gateway (spec 0009) stay as separate components — see below.
-- **CNI-08** Installation happens in the Ansible layer, not GitOps. Argo CD
-  cannot install the CNI because without a CNI no pods run, including Argo
-  CD's. This is the one platform component that legitimately sits on the
-  Ansible side of spec 0007's dividing line.
+- **CNI-08** Installation happens in the Ansible layer, not GitOps. Flux
+  cannot install the CNI because without a CNI no pods run, including Flux's
+  own controllers. This is the one platform component that legitimately sits
+  on the Ansible side of spec 0007's dividing line.
 - **CNI-09** The cluster endpoint MUST be a floating VIP, never a node
   address. It is baked into the PKI, every `kubelet.conf`, the admin
   kubeconfig and Cilium's `k8sServiceHost`, so a node address means three

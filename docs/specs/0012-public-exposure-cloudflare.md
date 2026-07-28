@@ -23,13 +23,13 @@ public looks like.
   and bot filtering included).
 - Zero inbound ports on the router — outbound-only connectivity.
 - Making a service public is a git commit: one manifest change, reconciled
-  by Argo CD, no Cloudflare dashboard clicking.
+  by Flux, no Cloudflare dashboard clicking.
 - **Private by default.** Nothing becomes public implicitly; the public
   path requires an explicit, reviewable declaration.
 
 ## Non-goals
 
-- Exposing the Proxmox/Ceph management plane or the Argo CD UI publicly —
+- Exposing the Proxmox/Ceph management plane or the GitOps dashboard publicly —
   management stays LAN/VPN-only regardless of this spec.
 - Email, non-HTTP TCP/UDP services (game servers etc.) — Cloudflare Tunnel
   can carry arbitrary TCP but each case needs its own review; out of scope
@@ -51,7 +51,7 @@ closed: Cloudflare terminates public TLS at the edge and delivers traffic
 down the established tunnel.
 
 - Deployed from `applications/system/cloudflare-tunnel/` via GitOps.
-- Tunnel credentials (tunnel token) as a SealedSecret.
+- Tunnel credentials (tunnel token) as a SOPS-encrypted Secret.
 - Tunnel ingress rules are **declared in the ConfigMap in git** (not
   dashboard-managed), so the set of public hostnames is version-controlled
   and reviewable — this is the "explicit declaration" that makes a service
@@ -108,9 +108,9 @@ PR that:
 ## Implementation plan
 
 1. Create the tunnel + scoped API token (one-time `cloudflared tunnel
-   create`, documented; credentials sealed).
+   create`, documented; credentials SOPS-encrypted).
 2. `applications/system/cloudflare-tunnel/` with cloudflared, the ConfigMap,
-   and the SealedSecret; wire into the app-of-apps tree.
+   and the encrypted Secret; wire into the Flux Kustomization tree.
 3. First public service end-to-end — a deliberately harmless one (e.g. a
    static "about this homelab" page, which doubles as presentation
    material) behind Cloudflare Access.

@@ -120,7 +120,8 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 ### Application Layer
 
 #### GitOps Management
-- **ArgoCD**: Continuous delivery for K8s applications
+- **Flux**: Continuous reconciliation of everything above the cluster, managed
+  by the Flux Operator so Flux's own version is a declarative field
   ([spec 0007](../specs/0007-gitops-bootstrap.md))
 - **Git Repository**: Single source of truth for configuration
 
@@ -181,12 +182,19 @@ itself is [spec 0010](../specs/0010-node-os-evaluation.md).
 - Strong automation capabilities
 
 ### GitOps Approach
-**Decision**: ArgoCD for application deployment
+**Decision**: Flux for application deployment
 **Rationale**:
 - Git as single source of truth
 - Automated drift detection
 - Audit trail for all changes
 - Simplified rollback procedures
+- Native SOPS decryption, so encrypted secrets are ordinary committed files
+  rather than a repo-server plugin
+- A quarter of Argo CD's memory footprint, which matters on homelab VMs
+
+Argo CD was the earlier choice and would also have worked; the trade — and the
+one thing lost, its UI — is recorded in
+[spec 0007](../specs/0007-gitops-bootstrap.md).
 
 ## Network Architecture
 
@@ -253,10 +261,11 @@ The two Kubernetes stacks are addressed disjointly so both can run at once
 
 ### Secrets Management
 - **Ansible Vault**: encrypted variables for infrastructure
-- **Sealed Secrets**: Kubernetes secrets committed encrypted
-  ([spec 0007](../specs/0007-gitops-bootstrap.md)) — the sealing key is the
-  single point of failure and is covered by
-  [spec 0015](../specs/0015-backup-and-recovery.md)
+- **SOPS + age**: Kubernetes secrets committed encrypted and decrypted by Flux
+  at reconcile time ([spec 0007](../specs/0007-gitops-bootstrap.md)). The age
+  private key lives in the Ansible Vault-encrypted variables file, which makes
+  the vault password the single out-of-band secret for the whole system —
+  covered by [spec 0015](../specs/0015-backup-and-recovery.md)
 - Generated cluster secrets, machine configs and kubeconfigs live in
   gitignored `generated/` directories and are never committed
 
@@ -283,9 +292,8 @@ Specified in [spec 0015](../specs/0015-backup-and-recovery.md). **None of it
 is implemented yet** — treat this section as the plan, not a guarantee.
 
 ### Data Protection
-- **Cluster identity**: Talos secrets bundle, kubeadm PKI, and the
-  sealed-secrets key — small, static, and the difference between "rebuild"
-  and "gone"
+- **Cluster identity**: Talos secrets bundle, kubeadm PKI, and the SOPS age
+  key — small, static, and the difference between "rebuild" and "gone"
 - **VM Backups**: `vzdump` to Proxmox Backup Server or a NAS
 - **K8s Backups**: Velero for application data and CSI volume snapshots
 - **Configuration Backups**: this git repository

@@ -60,13 +60,17 @@ than restoring the original framing.
   Ceph `HEALTH_OK`. Too slow and too risky live; a 90-second time-lapse
   with narration lands better.
 - **Demo B (live, local):** GitOps loop against a pre-staged cluster —
-  `git commit` a change to an app manifest, watch Argo CD reconcile it.
+  `git commit` a change to an app manifest, watch Flux reconcile it. Flux has
+  no bundled UI, so the visual is the dashboard from spec
+  [0009](0009-platform-services.md) alongside `flux events` in a terminal —
+  rehearse this framing, since a CLI reconcile reads as less dramatic than an
+  application tree turning green.
   Runs on a laptop-reachable homelab via VPN *with a recorded fallback*, or
   entirely on a local [kind](https://kind.sigs.k8s.io/) /
   [Talos-in-Docker](https://www.talos.dev/latest/talos-guides/install/local-platforms/docker/)
   cluster mirroring the repo.
 - **Demo C (recorded):** the resilience money-shot — `remove-vms.yml`, full
-  re-provision, Argo CD restores every workload. Time-lapse from spec 0007's
+  re-provision, Flux restores every workload. Time-lapse from spec 0007's
   rebuild acceptance test.
 - The combined Grafana homelab dashboard (spec 0009) as the persistent
   backdrop/screensaver slide.
