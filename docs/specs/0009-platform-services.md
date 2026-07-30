@@ -5,6 +5,8 @@
 (goal 6: Let's Encrypt for private services)
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md); monitoring
 storage depends on [0008](0008-kubernetes-storage.md)
+**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — the MetalLB pool is
+now an authoritative allocation rather than an example
 
 ## Context
 
@@ -71,11 +73,13 @@ storage (0008) ──► kube-prometheus-stack ──► loki + alloy
 
 ### MetalLB (depends on nothing)
 
-- [L2 mode](https://metallb.io/concepts/layer2/) on the VM VLAN. Address
-  pool carved from `vm_subnet` outside the
-  node range, e.g. `192.168.100.240–192.168.100.250`, defined next to the
-  other network values in `vars.yml.example` and mirrored in the manifest
-  (single source documented as the manifest; vars.yml comment points to it).
+- [L2 mode](https://metallb.io/concepts/layer2/) on the VM VLAN. The address
+  pool is `192.168.100.240–192.168.100.250`, outside the node range — not an
+  example, but the authoritative allocation in spec
+  [0019](0019-single-cluster-mixed-distro.md), MIX-09. `.240` is the shared
+  Gateway and `.241` is Forgejo's git-over-SSH service (spec 0017, FORGE-07);
+  `.251–.254` is reserved for growing this pool and nothing else. The manifest
+  remains the single source, with the `vars.yml.example` comment pointing at it.
 
 ### Envoy Gateway (depends on MetalLB)
 

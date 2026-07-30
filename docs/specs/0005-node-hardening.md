@@ -1,8 +1,8 @@
 # 0005 — Node security hardening
 
-**Status:** Implemented
+**Status:** Accepted
 **Serves goals:** Learning (Proxmox, security); repo organization
-**Implementing files:** `infrastructure/ansible/playbooks/proxmox/harden.yml`,
+**Planned files:** `infrastructure/ansible/playbooks/proxmox/harden.yml`,
 `verify-hardening.yml`, `infrastructure/ansible/templates/jail.local.j2`,
 `cluster.fw.j2`, `host.fw.j2`
 
@@ -35,8 +35,9 @@ this spec records the invariants.
     for per-guest rules rather than an inert setting.
   - Proxmox's own management rules cover 22/tcp (SSH), 8006/tcp (web UI),
     3128/tcp (SPICE proxy), 5900-5999/tcp (VNC), 5405-5412/udp (corosync)
-    and **60000-60050/tcp (live migration)** — the last of which the previous
-    UFW allowlist omitted, silently breaking migration between nodes.
+    and **60000-60050/tcp (live migration)** — the last of which a
+    hand-maintained UFW allowlist is easy to omit, silently breaking
+    migration between nodes.
   - Only Ceph (3300, 6789, 6800-7300/tcp — see the
     [Ceph network config reference](https://docs.ceph.com/en/latest/rados/configuration/network-config-ref/))
     and rpcbind (111/tcp+udp) need explicit rules, sourced from the Ceph
@@ -94,8 +95,7 @@ this spec records the invariants.
   reboot-gated by design.
 - Guest traffic is unfiltered (HARD-03). The `firewall=1` flag on VM NICs
   (spec [0006](0006-vm-platform.md)) makes per-guest rules possible, but none
-  are written yet — Kubernetes node policy belongs to the cluster layer for
-  now.
+  are specified here — Kubernetes node policy belongs to the cluster layer.
 - `firewall_management_sources` is the one setting that can lock the operator
   out of every node at once. Console access is the recovery path
   (see HARDENING.md).

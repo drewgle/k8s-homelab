@@ -1,8 +1,8 @@
 # 0003 — Proxmox VE cluster formation
 
-**Status:** Implemented
+**Status:** Accepted
 **Serves goals:** Learning (Proxmox); repo organization
-**Implementing files:** `infrastructure/ansible/playbooks/proxmox/03-cluster-create.yml`,
+**Planned files:** `infrastructure/ansible/playbooks/proxmox/03-cluster-create.yml`,
 `cluster-add-node.yml`, `health-check.yml`
 
 ## Context

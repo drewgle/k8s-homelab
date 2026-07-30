@@ -1,16 +1,16 @@
 # 0002 — Initial node setup
 
-**Status:** Implemented
+**Status:** Accepted
 **Serves goals:** Learning (Proxmox, Ansible); repo organization
-**Implementing files:** `infrastructure/ansible/playbooks/proxmox/01-initial-setup.yml`,
+**Planned files:** `infrastructure/ansible/playbooks/proxmox/01-initial-setup.yml`,
 `02-reboot.yml`
 
 ## Context
 
 First-contact configuration that turns a freshly installed PVE node (manual
 or via spec [0001](0001-bare-metal-provisioning.md)) into a patched,
-key-accessible node with community repositories. Runs before everything else
-in `site.yml`.
+key-accessible node with community repositories. It runs before everything
+else in `site.yml`.
 
 ## Requirements
 

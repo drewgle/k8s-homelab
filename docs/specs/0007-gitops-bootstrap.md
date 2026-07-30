@@ -2,12 +2,18 @@
 
 **Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning k8s; repo organization
+**Affects:** [0017](0017-self-hosted-forge.md) moves the git source in-cluster
+and revises the git-access, non-goal and linting sections below
+**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — one cluster, one
+kubeconfig, no target selection
 
 ## Context
 
-The Ansible layer produces a bare Kubernetes cluster (Talos or Flatcar) with a
-CNI and nothing else. This spec defines how *everything above the cluster* gets
-reconciled from this repository rather than applied by hand.
+The Ansible layer produces one bare Kubernetes cluster, whose nodes may run
+different Linux distributions (spec
+[0019](0019-single-cluster-mixed-distro.md)), with a CNI and nothing else. This
+spec defines how *everything above the cluster* gets reconciled from this
+repository rather than applied by hand.
 
 The dividing line between the two toolchains:
 
@@ -54,16 +60,24 @@ gap gets closed.
 
 - One command takes a freshly bootstrapped cluster to "Flux is running and
   reconciling this repo".
-- Works identically on Talos and Flatcar clusters, so switching node OS
-  (spec [0010](0010-node-os-evaluation.md)) does not change the app layer.
+- Works on any mix of node distros, so swapping one node's OS (spec
+  [0019](0019-single-cluster-mixed-distro.md), MIX-23) does not change the app
+  layer. This used to be a claim about two clusters behaving alike, which nothing
+  tested; against one cluster it is directly testable — swap a worker and watch
+  every Kustomization stay `Ready`.
 - The full application state is recoverable from git alone: destroy the VMs,
   re-run the playbooks, and every workload returns without manual steps.
 - Secrets live in git, encrypted — no gitignored files holding cluster state.
 
 ## Non-goals
 
-- Multi-cluster or multi-environment overlays (single homelab cluster).
-- CI-driven image building or a container registry (possible future spec).
+- Multi-cluster or multi-environment overlays. There is exactly one cluster by
+  construction (spec 0019, MIX-01), so the flat `applications/` tree needs no
+  per-cluster level and adding one would be inventing a dimension the homelab does
+  not have.
+- CI-driven image building or a container registry — now owned by specs
+  [0017](0017-self-hosted-forge.md) and [0018](0018-ci-pipelines.md), which put
+  both in the homelab rather than deferring them.
 - Image automation (Flux writing new tags back to git) — Renovate already owns
   version bumps, and two things racing to edit the same manifests is a
   correctness problem, not a feature.
@@ -81,22 +95,29 @@ component set, and git source.
 This matters for two reasons. It makes Flux's own version a declarative,
 Renovate-managed field rather than a pinned manifest someone re-applies by hand.
 And it avoids `flux bootstrap`, whose whole model is to **commit and push** the
-Flux install into the repository — a non-starter here, because git credentials
-are hardware-key protected and no automation in this repo talks to a remote.
+Flux install into the repository — a non-starter here, because the operator's
+git credentials are hardware-key protected and no automation may use that
+identity. (Spec [0017](0017-self-hosted-forge.md) does introduce one machine
+credential that talks to a remote: a token scoped to write exactly one
+repository, for the GitHub push mirror. The invariant is that automation never
+holds the *operator's* identity, not that no automation ever reaches a remote.)
 `FluxInstance` reaches the same end state with a resource that a human commits
 normally.
 
 ### Bootstrap playbook
 
-A single OS-agnostic playbook, following the existing numbering convention:
+A single distro-agnostic playbook, following the existing numbering convention:
 
 ```
 infrastructure/ansible/playbooks/kubernetes/01-gitops-bootstrap.yml
 ```
 
-It runs on localhost against the generated kubeconfig
-(`infrastructure/linux/{talos,flatcar}/generated/kubeconfig`, selected via a
-`vm_type` variable, defaulting to autodetection of whichever file exists). It:
+It runs on localhost against the one generated kubeconfig,
+`infrastructure/linux/cluster/generated/kubeconfig`, written by whichever
+control-plane bootstrap ran (spec 0019 MIX-01, 0014 FLAT-10). There is no
+`vm_type` variable and no autodetection between two paths — deleting that
+selection also deletes the failure mode it invited, which was reconciling into
+whichever cluster happened to have a kubeconfig on disk. It:
 
 1. Installs the Flux Operator from its pinned OCI Helm chart into
    `flux-system`.
@@ -168,7 +189,16 @@ place) documented in `applications/README.md`.
 Flux needs read access to this repository. The repo is public, so the
 `FluxInstance` sync source needs no credentials. If it is ever made private,
 Flux gets its own **read-only deploy key** — never a personal credential —
-supplied the same way as the age key.
+supplied the same way as the age key, and never as a SOPS file inside the
+repository it is needed in order to read.
+
+Spec [0017](0017-self-hosted-forge.md) changes *which* remote this is. Steady
+state becomes the in-cluster Forgejo, reached over cluster-internal Service DNS;
+the sync URL in the bootstrap playbook becomes a variable defaulting to the
+GitHub mirror, so a cold cluster always bootstraps from outside itself and cuts
+over once the forge is healthy. The `FluxInstance` in this repo is then applied
+by a health-gated Kustomization rather than reconciled unconditionally — see
+that spec for why the ungated version deadlocks a rebuild.
 
 ### Visibility
 
@@ -186,8 +216,8 @@ through the Gateway.
 
 ### Version management
 
-[Renovate](https://docs.renovatebot.com/) already manages `versions.yaml`
-files. Extend [renovate.json](../../renovate.json) with:
+[Renovate](https://docs.renovatebot.com/) manages the `versions.yaml` files.
+Extend [renovate.json](../../renovate.json) with:
 
 - The built-in [`flux` manager](https://docs.renovatebot.com/modules/manager/flux/),
   which understands `HelmRelease`, `HelmRepository` and `OCIRepository` under
@@ -196,12 +226,15 @@ files. Extend [renovate.json](../../renovate.json) with:
   `applications/flux/instance.yaml` and the operator chart pin, using the same
   `# renovate:` comment convention as the existing `versions.yaml` managers.
 
-Same policy shape as today: patch bumps automerge after a soak window,
-minor/major require review.
+Same policy shape as the `versions.yaml` managers: patch bumps automerge after a
+soak window, minor/major require review.
 
 ### Linting
 
-Add to the existing [lint workflow](../../.github/workflows/lint.yml):
+These checks are owned by spec [0018](0018-ci-pipelines.md) and run on Forgejo
+Actions once spec 0017 provides the runners; the GitHub
+[lint workflow](../../.github/workflows/lint.yml) stays as a backstop for when
+the cluster is down. Either way the content is the same:
 
 - `kustomize build --enable-helm` over every kustomization under
   `applications/` — catches broken manifests before Flux does.
@@ -225,9 +258,14 @@ Add to the existing [lint workflow](../../.github/workflows/lint.yml):
 
 ## Acceptance criteria
 
-- [ ] Fresh Talos cluster → bootstrap playbook → `flux get all -A` all `Ready`,
-      with no manual `kubectl` steps beyond the playbook's own.
-- [ ] The same passes on a Flatcar cluster.
+- [ ] Fresh cluster with `control_plane_distro: talos` → bootstrap playbook →
+      `flux get all -A` all `Ready`, with no manual `kubectl` steps beyond the
+      playbook's own.
+- [ ] The same passes with `control_plane_distro: flatcar`.
+- [ ] The same passes on a cluster whose workers are a mix of distros.
+- [ ] Swapping one worker's distro (spec 0019, MIX-23) leaves every Flux
+      Kustomization `Ready` and every workload running. This is the testable form
+      of the "switching node OS does not change the app layer" goal.
 - [ ] Full teardown (`remove-vms.yml`) and rebuild restores all committed
       applications, including secrets, given only the repo and the Ansible
       Vault password.

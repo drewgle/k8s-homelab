@@ -1,8 +1,8 @@
 # 0004 — Ceph distributed storage
 
-**Status:** Implemented
+**Status:** Accepted
 **Serves goals:** Learning (Ceph, Proxmox); repo organization
-**Implementing files:** `infrastructure/ansible/playbooks/proxmox/04-ceph-deploy.yml`
+**Planned files:** `infrastructure/ansible/playbooks/proxmox/04-ceph-deploy.yml`
 (orchestrator), `ceph/01-common.yml`, `ceph/02-cluster-init.yml`,
 `ceph/03-osd-add.yml`, `ceph/status.yml`, `ceph/add-node.yml`,
 `ceph-expand.yml`, `verify-ceph.yml`
@@ -32,7 +32,7 @@ UI's Ceph panel.
   ([Proxmox cluster filesystem](https://pve.proxmox.com/wiki/Proxmox_Cluster_File_System_%28pmxcfs%29)).
 - **CEPH-04** Cluster credentials are managed by `pveceph` in `/etc/pve`
   (pmxcfs-replicated); the playbooks MUST NOT copy keyrings by hand.
-- **CEPH-05** A default `rbd` pool exists with the RBD application,
+- **CEPH-05** A default `rbd` pool MUST be created with the RBD application,
   [`size 3` / `min_size 2`](https://docs.ceph.com/en/latest/rados/operations/pools/)
   (data survives one node loss and stays writable),
   [autoscaled placement groups](https://docs.ceph.com/en/latest/rados/operations/placement-groups/),

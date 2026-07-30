@@ -3,12 +3,13 @@
 **Status:** Draft
 **Serves goals:** Presentation; indirectly all others (the talk is the
 forcing function)
-**Depends on:** specs 0007–0009 for the GitOps demos; [0010](0010-node-os-evaluation.md)
-for the OS-comparison section
+**Depends on:** specs 0007–0009 for the GitOps demos;
+[0010](0010-node-os-evaluation.md) for the OS-comparison section;
+[0019](0019-single-cluster-mixed-distro.md) for section 5 and demo D
 
 ## Context
 
-[docs/presentation/](../presentation/) currently holds an abstract and one
+[docs/presentation/](../presentation/) holds an abstract and one
 image. The abstract promises self-hosted replacements for Google Workspace
 and Dropbox, which the repo does not (yet) demonstrate — the repo's actual
 strength is the *infrastructure and GitOps story*: blank hardware to a
@@ -31,14 +32,14 @@ to what will demonstrably exist, and defines the missing materials.
 
 ## Design
 
-### Revised abstract — **done**
+### Revised abstract
 
-`abstract.md` has been rewritten: reframed from "escape cloud services" to
-"from blank hardware to a self-healing Kubernetes platform, entirely from one
-git repo", keeping the privacy/cost hook as motivation and dropping the
-Workspace/Dropbox replacement promise. If one or two real self-hosted apps
-exist by the talk (see open questions), add them as a closing example rather
-than restoring the original framing.
+`abstract.md` MUST be reframed from "escape cloud services" to "from blank
+hardware to a self-healing Kubernetes platform, entirely from one git repo",
+keeping the privacy/cost hook as motivation and dropping the Workspace/Dropbox
+replacement promise. If one or two real self-hosted apps exist by the talk (see
+open questions), add them as a closing example rather than restoring the
+original framing.
 
 ### Outline and timing budget (~75 min content)
 
@@ -48,7 +49,7 @@ than restoring the original framing.
 | 2 | The stack at a glance — one diagram, layer by layer | 7 min | architecture doc |
 | 3 | Bare metal → Proxmox: unattended install USB | 8 min | `playbooks/bootstrap/`, `infrastructure/linux/proxmox/` |
 | 4 | Proxmox cluster + Ceph in one command | 10 min | `site.yml`; **demo A** |
-| 5 | Kubernetes two ways: Talos vs Flatcar | 12 min | specs 0013/0014 + spec 0010 matrix and journal stories |
+| 5 | One cluster, two operating systems | 12 min | spec 0019 + 0013/0014 as its implementations; spec 0010 matrix and journal stories; **demo D** |
 | 6 | GitOps: the cluster that rebuilds itself | 15 min | specs 0007–0009; **demos B & C** |
 | 7 | Keeping it alive: Renovate, upgrades, lessons learned | 10 min | renovate.json, journal |
 | 8 | Getting started yourself — minimal hardware, first steps | 5 min | root README |
@@ -72,6 +73,19 @@ than restoring the original framing.
 - **Demo C (recorded):** the resilience money-shot — `remove-vms.yml`, full
   re-provision, Flux restores every workload. Time-lapse from spec 0007's
   rebuild acceptance test.
+- **Demo D (recorded, time-lapse):** the distro swap. Open on one
+  `kubectl get nodes -o wide -L node-restriction.kubernetes.io/distro` showing two
+  OS images in a single cluster — that one screen *is* section 5's thesis — then
+  time-lapse `swap-node-distro.yml` taking a worker from Talos to Flatcar: cordon,
+  drain, destroy, re-provision, rejoin, with Flux staying green throughout (spec
+  [0019](0019-single-cluster-mixed-distro.md), MIX-23).
+
+  This replaces what section 5 used to be, and it is a better segment for three
+  reasons. It is legible in one screen, with no "why do you have two clusters"
+  tangent to spend two minutes on. It demonstrates a capability real fleets
+  actually want — heterogeneous nodes and in-place OS migration — rather than a
+  lab exercise nobody would run in production. And it shares its narrative with
+  demo C, so the two can be introduced together and buy back time for Q&A.
 - The combined Grafana homelab dashboard (spec 0009) as the persistent
   backdrop/screensaver slide.
 
@@ -96,8 +110,8 @@ Timing adjustments recorded in outline.md.
 
 ## Implementation plan
 
-1. ~~Revise abstract.md~~ (done); write outline.md with speaker notes (can
-   start now — sections 1–5 don't depend on the GitOps specs).
+1. Revise abstract.md; write outline.md with speaker notes (both can start now —
+   sections 1–5 don't depend on the GitOps specs).
 2. Build slides skeleton; pick [Marp](https://marp.app/) or
    [reveal.js](https://revealjs.com/).
 3. Record demo A during the next infrastructure rebuild.

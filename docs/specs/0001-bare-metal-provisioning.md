@@ -1,15 +1,16 @@
 # 0001 — Bare-metal Proxmox provisioning
 
-**Status:** Implemented
+**Status:** Accepted
 **Serves goals:** Learning (Proxmox, Ansible); repo organization
-**Implementing files:** `infrastructure/ansible/playbooks/bootstrap/01-render-answers.yml`,
+**Planned files:** `infrastructure/ansible/playbooks/bootstrap/01-render-answers.yml`,
 `02-build-iso.yml`, `infrastructure/linux/proxmox/` (template, versions, Dockerfile, README)
 
 ## Context
 
-Everything above the hypervisor is automated, but installing Proxmox itself
-was a manual ISO walk-through. This spec covers the unattended path: boot a
-node from a USB stick and it comes up as a fully installed PVE node ready for
+Everything above the hypervisor is automated by the specs that follow, but
+installing Proxmox itself would otherwise be a manual ISO walk-through. This
+spec covers the unattended path: boot a node from a USB stick and it comes up
+as a fully installed PVE node ready for
 `01-initial-setup.yml`, using Proxmox's official
 [Automated Installation](https://pve.proxmox.com/wiki/Automated_Installation)
 in `partition` fetch mode — the installer reads `answer.toml` from a FAT
@@ -37,7 +38,7 @@ repo is the end-to-end source of truth.
 - **BMP-06** Disk layout MUST be ext4 + LVM on `/dev/sda` only, preserving
   `local-lvm` (VMP-05) and leaving all other disks untouched for Ceph
   (CEPH-06). Each node has exactly one SATA disk and one NVMe disk: the SATA
-  disk (`sda`) is the OS, the NVMe is Ceph's. ZFS root was not chosen because
+  disk (`sda`) is the OS, the NVMe is Ceph's. ZFS root is rejected because
   its main advantage here would be a boot mirror, and there is no second disk
   to mirror onto that Ceph does not need more. **Redundancy at this layer is
   the node count** — losing a boot disk means re-imaging one node (spec
@@ -79,6 +80,6 @@ answer itself.
 - The answer sits unencrypted on the USB partition and contains the root
   password hash and public SSH keys; wipe or rewrite the partition once
   installs are done.
-- There is no central request log of unknown nodes (the old answer-server
-  onboarding path). Node identity is chosen by which answer is written to the
-  stick, so MAC/serial matching no longer exists anywhere.
+- There is no central request log of unknown nodes, which an answer-server
+  onboarding path would give. Node identity is chosen by which answer is
+  written to the stick, so nothing matches on MAC or serial anywhere.

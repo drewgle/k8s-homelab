@@ -130,7 +130,7 @@ ansible-playbook playbooks/talos/add-node.yml -e "new_nodes=['talos-worker-04']"
 | Topic | Link |
 |-------|------|
 | Architecture and design decisions | [docs/architecture/](docs/architecture/) |
-| Specs: planned work + implemented subsystems | [docs/specs/](docs/specs/) |
+| Specs: design specs for planned work | [docs/specs/](docs/specs/) |
 | Bare-metal Proxmox auto-install | [infrastructure/linux/proxmox/](infrastructure/linux/proxmox/) |
 | Ansible usage and troubleshooting | [infrastructure/ansible/](infrastructure/ansible/) |
 | Proxmox clustering | [CLUSTER.md](infrastructure/ansible/playbooks/proxmox/CLUSTER.md) |

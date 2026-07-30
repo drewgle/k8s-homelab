@@ -32,6 +32,9 @@ applications/
 │   ├── envoy-gateway/     # Gateway API implementation
 │   ├── cert-manager/
 │   ├── storage/           # CSI driver + StorageClasses
+│   ├── forge/             # Forgejo + PostgreSQL — the git source itself
+│   ├── flux-source/       # FluxInstance, health-gated on the forge
+│   ├── forge-runners/     # Forgejo Actions runners
 │   ├── monitoring/        # kube-prometheus-stack, Loki, Alloy
 │   ├── backup/            # Velero
 │   └── cloudflare-tunnel/ # public exposure
@@ -129,6 +132,7 @@ not the control.
 | Log collection | Grafana Alloy | Promtail — end of life March 2026 |
 | Storage | CSI against the existing Proxmox Ceph pool | Longhorn — replication on top of already-replicated disks; Rook — a second Ceph cluster |
 | Load balancing | MetalLB (L2) | Cilium L2 announcements, pending the CNI decision |
+| Forge and CI | Forgejo + Forgejo Actions | Gitea — equivalent, but commercially rather than community governed; Woodpecker — a second server, database and OAuth app for CI the forge already has ([spec 0017](../docs/specs/0017-self-hosted-forge.md)) |
 
 The reasoning behind each is in the spec that owns it —
 [0007](../docs/specs/0007-gitops-bootstrap.md) for GitOps and secrets,
@@ -141,6 +145,10 @@ The reasoning behind each is in the spec that owns it —
   than installed directly, so the rendered output stays reviewable
 - **Pin every version** — image tags and chart versions, never `latest`.
   Renovate opens the bump PRs
+- **Nothing in `system/` may use an image from the in-cluster registry.** Only
+  `apps/` may. A platform component pulling from a registry that Flux itself
+  deploys cannot be reconciled on a cold cluster
+  ([spec 0017](../docs/specs/0017-self-hosted-forge.md), FORGE-11)
 - **Resource requests and limits** on every workload
 - **Health and readiness probes** on every workload
 - A newcomer should be able to read one `system/<component>/` directory and
