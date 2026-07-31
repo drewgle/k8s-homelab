@@ -1,6 +1,5 @@
 # 0002 — Initial node setup
 
-**Status:** Accepted
 **Serves goals:** Learning (Proxmox, Ansible); repo organization
 **Planned files:** `infrastructure/ansible/playbooks/proxmox/01-initial-setup.yml`,
 `02-reboot.yml`

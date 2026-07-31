@@ -1,6 +1,5 @@
 # 0001 — Bare-metal Proxmox provisioning
 
-**Status:** Accepted
 **Serves goals:** Learning (Proxmox, Ansible); repo organization
 **Planned files:** `infrastructure/ansible/playbooks/bootstrap/01-render-answers.yml`,
 `02-build-iso.yml`, `infrastructure/linux/proxmox/` (template, versions, Dockerfile, README)

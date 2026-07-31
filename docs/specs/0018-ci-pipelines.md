@@ -1,6 +1,5 @@
 # 0018 — CI pipelines on Forgejo Actions
 
-**Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning (CI); repo
 organization
 **Depends on:** [0017 self-hosted forge](0017-self-hosted-forge.md) (the forge,

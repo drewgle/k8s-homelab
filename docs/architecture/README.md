@@ -157,10 +157,6 @@ built yet.
 - Consistent environments
 - API-driven management
 
-Flatcar Container Linux with kubeadm was previously maintained as an
-alternative node OS for a side-by-side comparison; that goal and the Flatcar
-stack were removed on 2026-07-31 (history in git).
-
 ### Storage Strategy
 **Decision**: Ceph for distributed storage
 **Rationale**:

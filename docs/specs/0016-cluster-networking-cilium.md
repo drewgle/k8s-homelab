@@ -1,12 +1,8 @@
 # 0016 — Cluster networking: Cilium
 
-**Status:** Accepted
 **Serves goals:** Learning (k8s, networking); presentation
 **Depends on:** [0013](0013-talos-cluster-lifecycle.md) (installs the CNI)
 **Affects:** [0009](0009-platform-services.md) (load balancing and ingress)
-**Superseded requirements:** CNI-01 → CNI-10; CNI-11 → CNI-05 and
-CNI-12 → CNI-06 (reinstated 2026-07-31; their mixed-distro replacements were
-removed unbuilt)
 
 ## Context
 
@@ -45,14 +41,8 @@ Cilium wins on three counts specific to this repo:
    live service map is the strongest visual in the stack and runs entirely
    locally, so it does not depend on venue networking.
 
-(A fourth count — removing a CNI asymmetry between the Talos and Flatcar
-stacks that skewed the since-removed node-OS comparison — went away with that
-goal, but the decision stands on the first three.)
-
 ## Requirements
 
-- **CNI-01** **Superseded by CNI-10 below** (CNI version parity across the
-  removed two-OS platform).
 - **CNI-02** The Kubernetes bootstrap MUST NOT install any CNI of its own.
   Talos sets `cluster.network.cni.name: none`. Nodes stay `NotReady` until
   Cilium is installed — that is expected, not a fault, and it applies to a node
@@ -97,13 +87,9 @@ goal, but the decision stands on the first three.)
   do). The VIP only exists after the control plane is up, so bootstrap MUST
   continue to use real node addresses and the playbooks MUST wait for the
   VIP before anything that goes through the kubeconfig.
-- **CNI-10** Supersedes CNI-01. There is exactly **one** Cilium release for the
+- **CNI-10** There is exactly **one** Cilium release for the
   cluster, at the version in `infrastructure/linux/talos/versions.yaml` — a
   Renovate-managed single key.
-- **CNI-11** **Tombstone — superseded CNI-05 during the removed mixed-distro
-  design; CNI-05 above is reinstated.**
-- **CNI-12** **Tombstone — superseded CNI-06 during the removed mixed-distro
-  design; CNI-06 above is reinstated.**
 
 ## Why Cilium does not absorb MetalLB and Envoy Gateway
 

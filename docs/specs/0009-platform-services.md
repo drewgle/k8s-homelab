@@ -1,12 +1,9 @@
 # 0009 — Core platform services
 
-**Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning k8s; TLS/exposure
 (goal 5: Let's Encrypt for private services)
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md); monitoring
 storage depends on [0008](0008-kubernetes-storage.md)
-**Amended by:** [0006](0006-vm-platform.md) VMP-12 — the MetalLB pool is an
-authoritative allocation rather than an example
 
 ## Context
 

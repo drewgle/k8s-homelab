@@ -1,6 +1,5 @@
 # 0007 — GitOps bootstrap with Flux
 
-**Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning k8s; repo organization
 **Affects:** [0017](0017-self-hosted-forge.md) moves the git source in-cluster
 and revises the git-access, non-goal and linting sections below

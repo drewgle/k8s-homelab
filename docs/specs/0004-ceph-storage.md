@@ -1,6 +1,5 @@
 # 0004 — Ceph distributed storage
 
-**Status:** Accepted
 **Serves goals:** Learning (Ceph, Proxmox); repo organization
 **Planned files:** `infrastructure/ansible/playbooks/proxmox/04-ceph-deploy.yml`
 (orchestrator), `ceph/01-common.yml`, `ceph/02-cluster-init.yml`,

@@ -1,6 +1,5 @@
 # 0015 — Backup and disaster recovery
 
-**Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning (Proxmox, Ceph,
 k8s); repo organization
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md);
@@ -73,11 +72,9 @@ automated so "back up your key" is never a manual `cp`.
 
 ### 2. etcd
 
-An earlier draft treated etcd backup as needed only under kubeadm, on the
-reasoning that Talos rebuilds its control plane from the secrets bundle. That
-conflated identity with data: cluster state that is not in git — custom
-resources, Velero's own metadata, Flux's bookkeeping — lives in etcd. The
-bundle restores *identity*; it does not restore *state*.
+The secrets bundle rebuilds the control plane, but that restores *identity*,
+not *state*: cluster state that is not in git — custom resources, Velero's
+own metadata, Flux's bookkeeping — lives in etcd and only in etcd.
 
 Mechanism: `talosctl etcd snapshot` from the control machine, hourly, shipped
 to the same offsite target as volume backups.

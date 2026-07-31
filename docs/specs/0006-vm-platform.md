@@ -1,20 +1,14 @@
 # 0006 — VM platform for Kubernetes nodes
 
-**Status:** Accepted
 **Serves goals:** Learning (Proxmox, k8s); repo organization
 **Planned files:** `infrastructure/ansible/roles/proxmox_vm/`,
 `playbooks/talos/01-provision-vms.yml`, `playbooks/remove-vms.yml`
-**Superseded requirements:** VMP-04 → VMP-11; VMP-07 → VMP-12
 
 ## Context
 
 The bridge between the Proxmox layer and the Kubernetes layer: a shared role
 that turns inventory definitions into running VMs, used by the Talos
 provisioning playbook.
-
-Earlier drafts of this spec described a two-OS platform (Talos alongside
-Flatcar); that goal was removed on 2026-07-31 and the repo is Talos-only. The
-superseded requirement IDs below are tombstones — git history has their text.
 
 ## Requirements
 
@@ -34,15 +28,11 @@ superseded requirement IDs below are tombstones — git history has their text.
   re-provision MUST pin the Proxmox host the slot already used, because CSI
   volume topology is keyed to it (spec
   [0008](0008-kubernetes-storage.md)).
-- **VMP-04** **Superseded by VMP-11 below** (per-stack `vm_id` ranges for the
-  removed two-OS platform).
 - **VMP-05** VM disks are created on `vm_storage` (default `local-lvm` —
   which is why BMP-06 mandates the ext4+LVM install).
 - **VMP-06** VM creation and start are idempotent: an existing `vm_id` on
   the target node short-circuits creation; a running VM short-circuits
   start. Re-running a provision playbook is safe.
-- **VMP-07** **Superseded by VMP-12 below** (the two-stack address
-  coexistence invariant for the removed two-OS platform).
 - **VMP-08** Teardown (`remove-vms.yml`) MUST work across all Proxmox nodes
   (each node removes the target VMs that exist locally), require interactive
   confirmation unless `-e force=true`, and destroy disks
@@ -53,11 +43,11 @@ superseded requirement IDs below are tombstones — git history has their text.
 - **VMP-10** VM hardware baseline: q35 machine type, host CPU, virtio-scsi
   with iothread, serial console (`--serial0 socket --vga serial0`), QEMU
   guest agent enabled, `--onboot 1`.
-- **VMP-11** Supersedes VMP-04. Every Kubernetes node host in inventory MUST
+- **VMP-11** Every Kubernetes node host in inventory MUST
   define a `vm_id` equal to the final octet of its `ansible_host` — one number
   identifies the VM, the address and the node, and it survives a re-provision
   unchanged.
-- **VMP-12** Supersedes VMP-07. There is **one** cluster and **one** address
+- **VMP-12** There is **one** cluster and **one** address
   plan on `192.168.100.0/24`: the control-plane VIP at `.200`, control planes
   `.201–.210`, workers `.211–.239`, and the MetalLB pool `.240–.250` (spec
   [0009](0009-platform-services.md)). One pod CIDR and one service CIDR for

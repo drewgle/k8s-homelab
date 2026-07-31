@@ -1,6 +1,5 @@
 # 0017 — Self-hosted forge: Forgejo and Actions runners
 
-**Status:** Accepted
 **Serves goals:** Fully GitOps-backed deployment; learning (k8s, CI); repo
 organization
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md);
@@ -10,8 +9,6 @@ organization
 that no automation here talks to a remote);
 [0015](0015-backup-and-recovery.md) (a new piece of identity material, and the
 first namespace that is *not* recoverable from git)
-**Superseded requirements:** FORGE-14 → FORGE-19 (every node runs Talos, so
-"pin runners away from Talos" became unimplementable)
 
 ## Context
 
@@ -123,9 +120,6 @@ the same exemption.
   node. Spec 0008 opens VM VLAN → management on TCP 8006 for the CSI
   driver; that rule MUST be scoped to the CSI driver's pods, or a CI job can reach
   the hypervisors underneath its own cluster.
-- **FORGE-14** **Superseded by FORGE-19 below** (pinned runners away from
-  Talos nodes via a distro `nodeSelector`, from the removed mixed-distro
-  design — every node runs Talos, so there is nothing to pin toward).
 - **FORGE-15** Runners MUST be registered at organization scope, not instance
   scope, MUST carry an explicit label so workflows request them deliberately,
   and fork/untrusted-contributor triggers MUST be disabled. Anyone who can push
@@ -139,7 +133,7 @@ the same exemption.
 - **FORGE-18** The forge namespace MUST be backed up by a mechanism that does
   not depend on CSI volume snapshots, whose availability is spec 0008's open
   question.
-- **FORGE-19** Supersedes FORGE-14. Runners run on Talos nodes — there is no
+- **FORGE-19** Runners run on Talos nodes — there is no
   other kind. Rootless DinD MUST therefore be validated against Talos's
   defaults (read-only rootfs, default seccomp profile, no host shell) before
   any workflow depends on it, in a namespace carrying the relaxed PodSecurity

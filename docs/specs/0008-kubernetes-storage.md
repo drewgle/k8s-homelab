@@ -1,6 +1,5 @@
 # 0008 — Kubernetes persistent storage on Ceph
 
-**Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning Ceph
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md)
 

@@ -1,6 +1,5 @@
 # 0011 — 90-minute meetup presentation
 
-**Status:** Draft
 **Serves goals:** Presentation; indirectly all others (the talk is the
 forcing function)
 **Depends on:** specs 0007–0009 for the GitOps demos;

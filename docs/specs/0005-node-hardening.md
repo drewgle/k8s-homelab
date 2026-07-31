@@ -1,6 +1,5 @@
 # 0005 — Node security hardening
 
-**Status:** Accepted
 **Serves goals:** Learning (Proxmox, security); repo organization
 **Planned files:** `infrastructure/ansible/playbooks/proxmox/harden.yml`,
 `verify-hardening.yml`, `infrastructure/ansible/templates/jail.local.j2`,

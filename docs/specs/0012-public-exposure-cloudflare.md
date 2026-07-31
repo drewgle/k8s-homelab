@@ -1,6 +1,5 @@
 # 0012 — Public service exposure via Cloudflare
 
-**Status:** Draft
 **Serves goals:** TLS/exposure (goal 5: public services through Cloudflare);
 fully GitOps-backed deployment
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md);

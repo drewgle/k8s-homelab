@@ -1,12 +1,9 @@
 # 0013 — Talos Kubernetes cluster lifecycle
 
-**Status:** Accepted
 **Serves goals:** Learning (k8s, Talos); repo organization
 **Planned files:** `infrastructure/ansible/playbooks/talos/02-cluster-create.yml`,
 `add-node.yml`, `upgrade.yml`, `health-check.yml`,
 `infrastructure/linux/talos/` (templates, versions)
-**Superseded requirements:** TALOS-12 → TALOS-01 (reinstated 2026-07-31; the
-mixed-distro PKI bundle TALOS-12 depended on was removed unbuilt)
 
 ## Context
 
@@ -70,8 +67,6 @@ exactly that reason.
   therefore runs after that, not before. There is one Cilium release for the
   cluster, installed by `02-cluster-create.yml` after bootstrap
   (spec [0016](0016-cluster-networking-cilium.md)).
-- **TALOS-12** **Tombstone — superseded TALOS-01 during the removed
-  mixed-distro design; TALOS-01 above is reinstated.**
 - **TALOS-13** Worker machine configs MUST carry only `cluster.ca.crt` and
   never a CA private key. Workers have no business holding the material that
   signs the cluster; a provisioning path that would place a CA key on a worker
