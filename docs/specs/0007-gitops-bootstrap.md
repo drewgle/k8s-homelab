@@ -4,14 +4,11 @@
 **Serves goals:** Fully GitOps-backed deployment; learning k8s; repo organization
 **Affects:** [0017](0017-self-hosted-forge.md) moves the git source in-cluster
 and revises the git-access, non-goal and linting sections below
-**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — one cluster, one
-kubeconfig, no target selection
 
 ## Context
 
-The Ansible layer produces one bare Kubernetes cluster, whose nodes may run
-different Linux distributions (spec
-[0019](0019-single-cluster-mixed-distro.md)), with a CNI and nothing else. This
+The Ansible layer produces one bare Talos Kubernetes cluster (spec
+[0013](0013-talos-cluster-lifecycle.md)), with a CNI and nothing else. This
 spec defines how *everything above the cluster* gets reconciled from this
 repository rather than applied by hand.
 
@@ -60,21 +57,15 @@ gap gets closed.
 
 - One command takes a freshly bootstrapped cluster to "Flux is running and
   reconciling this repo".
-- Works on any mix of node distros, so swapping one node's OS (spec
-  [0019](0019-single-cluster-mixed-distro.md), MIX-23) does not change the app
-  layer. This used to be a claim about two clusters behaving alike, which nothing
-  tested; against one cluster it is directly testable — swap a worker and watch
-  every Kustomization stay `Ready`.
 - The full application state is recoverable from git alone: destroy the VMs,
   re-run the playbooks, and every workload returns without manual steps.
 - Secrets live in git, encrypted — no gitignored files holding cluster state.
 
 ## Non-goals
 
-- Multi-cluster or multi-environment overlays. There is exactly one cluster by
-  construction (spec 0019, MIX-01), so the flat `applications/` tree needs no
-  per-cluster level and adding one would be inventing a dimension the homelab does
-  not have.
+- Multi-cluster or multi-environment overlays. There is exactly one cluster,
+  so the flat `applications/` tree needs no per-cluster level and adding one
+  would be inventing a dimension the homelab does not have.
 - CI-driven image building or a container registry — now owned by specs
   [0017](0017-self-hosted-forge.md) and [0018](0018-ci-pipelines.md), which put
   both in the homelab rather than deferring them.
@@ -106,18 +97,15 @@ normally.
 
 ### Bootstrap playbook
 
-A single distro-agnostic playbook, following the existing numbering convention:
+A single playbook, following the existing numbering convention:
 
 ```
 infrastructure/ansible/playbooks/kubernetes/01-gitops-bootstrap.yml
 ```
 
 It runs on localhost against the one generated kubeconfig,
-`infrastructure/linux/cluster/generated/kubeconfig`, written by whichever
-control-plane bootstrap ran (spec 0019 MIX-01, 0014 FLAT-10). There is no
-`vm_type` variable and no autodetection between two paths — deleting that
-selection also deletes the failure mode it invited, which was reconciling into
-whichever cluster happened to have a kubeconfig on disk. It:
+`infrastructure/linux/talos/generated/kubeconfig`, written by the cluster
+bootstrap (spec [0013](0013-talos-cluster-lifecycle.md)). It:
 
 1. Installs the Flux Operator from its pinned OCI Helm chart into
    `flux-system`.
@@ -258,14 +246,8 @@ the cluster is down. Either way the content is the same:
 
 ## Acceptance criteria
 
-- [ ] Fresh cluster with `control_plane_distro: talos` → bootstrap playbook →
-      `flux get all -A` all `Ready`, with no manual `kubectl` steps beyond the
-      playbook's own.
-- [ ] The same passes with `control_plane_distro: flatcar`.
-- [ ] The same passes on a cluster whose workers are a mix of distros.
-- [ ] Swapping one worker's distro (spec 0019, MIX-23) leaves every Flux
-      Kustomization `Ready` and every workload running. This is the testable form
-      of the "switching node OS does not change the app layer" goal.
+- [ ] Fresh cluster → bootstrap playbook → `flux get all -A` all `Ready`, with
+      no manual `kubectl` steps beyond the playbook's own.
 - [ ] Full teardown (`remove-vms.yml`) and rebuild restores all committed
       applications, including secrets, given only the repo and the Ansible
       Vault password.

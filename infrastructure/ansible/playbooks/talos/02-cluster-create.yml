@@ -170,8 +170,7 @@
       when: kubernetes_cni | default('cilium') == 'cilium'
 
     # The securityContext, cgroup and KubePrism values are required by Talos's
-    # read-only rootfs and cgroup layout (spec 0016, CNI-05/CNI-06). They are
-    # Talos-specific — the Flatcar install must not copy them.
+    # read-only rootfs and cgroup layout (spec 0016, CNI-05/CNI-06).
     - name: Install Cilium with kube-proxy replacement
       command: >
         helm upgrade --install cilium cilium/cilium

@@ -38,16 +38,6 @@
       "minimumReleaseAge": "7 days"
     },
     {
-      "description": "Flatcar tags releases as <channel>-<version>; stay on stable and strip the prefix.",
-      "matchDatasources": ["github-releases"],
-      "matchDepNames": ["flatcar/scripts"],
-      "extractVersion": "^stable-(?<version>.+)$",
-      "versioning": "loose",
-      "groupName": "flatcar",
-      "automerge": false,
-      "minimumReleaseAge": "7 days"
-    },
-    {
       "matchUpdateTypes": ["patch"],
       "addLabels": ["patch"]
     },

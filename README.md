@@ -1,11 +1,11 @@
 # HomeLab Infrastructure Automation
 
-> Automated homelab infrastructure as code: Proxmox, Ceph, and Kubernetes (Talos or Flatcar)
+> Automated homelab infrastructure as code: Proxmox, Ceph, and Kubernetes on Talos Linux
 
 Ansible automation for building and maintaining a homelab that runs Kubernetes
-on a Proxmox VE cluster with Ceph storage. Two Kubernetes node operating
-systems are supported — Talos Linux and Flatcar Container Linux — sharing the
-VM VLAN but addressed separately, so you can run either or both.
+on a Proxmox VE cluster with Ceph storage. The Kubernetes nodes run
+[Talos Linux](https://www.talos.dev/) — an immutable, API-driven OS with no
+shell or SSH, managed entirely through `talosctl`.
 
 ## Project Structure
 
@@ -23,12 +23,10 @@ k8s-homelab/
 │   │   └── playbooks/
 │   │       ├── proxmox/          # Cluster create/add-node, Ceph, hardening
 │   │       ├── talos/            # Talos VM + cluster lifecycle
-│   │       ├── flatcar/          # Flatcar VM + kubeadm cluster lifecycle
-│   │       └── remove-vms.yml    # Tear down Talos or Flatcar VMs
+│   │       └── remove-vms.yml    # Tear down the Talos VMs
 │   └── linux/
 │       ├── proxmox/              # Bare-metal PVE auto-install (answer on USB partition)
-│       ├── talos/                # Talos machine config templates + versions
-│       └── flatcar/              # Flatcar ignition/cloud-init templates + versions
+│       └── talos/                # Talos machine config templates + versions
 ├── applications/                 # Application deployments (planned)
 ├── docs/
 │   ├── architecture/             # System design and decisions
@@ -83,9 +81,7 @@ ansible-playbook playbooks/proxmox/harden.yml        # optional hardening
 ansible-playbook playbooks/proxmox/health-check.yml  # verify
 ```
 
-### 4. Kubernetes (pick one)
-
-**Talos** (immutable, API-driven):
+### 4. Kubernetes
 
 ```bash
 ansible-playbook playbooks/talos/01-provision-vms.yml
@@ -93,19 +89,11 @@ ansible-playbook playbooks/talos/02-cluster-create.yml
 ansible-playbook playbooks/talos/health-check.yml
 ```
 
-**Flatcar** (kubeadm-based):
+Default sizing is 3× 4GB control planes + 3× 8GB workers (36GB total). To
+tear the cluster down:
 
 ```bash
-ansible-playbook playbooks/flatcar/01-provision-vms.yml
-ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
-```
-
-The two stacks have separate node IPs, pod/service CIDRs and cluster names,
-so they coexist. Check RAM before running both — the defaults want 36GB per
-stack. To tear one down:
-
-```bash
-ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
+ansible-playbook playbooks/remove-vms.yml
 ```
 
 ## Common Operations
@@ -113,9 +101,6 @@ ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
 ```bash
 # Upgrade Talos + Kubernetes to the versions in versions.yaml
 ansible-playbook playbooks/talos/upgrade.yml
-
-# Apply Flatcar OS updates with node draining
-ansible-playbook playbooks/flatcar/update.yml
 
 # Add a Proxmox node / expand Ceph
 ansible-playbook playbooks/proxmox/cluster-add-node.yml
@@ -137,15 +122,14 @@ ansible-playbook playbooks/talos/add-node.yml -e "new_nodes=['talos-worker-04']"
 | Ceph storage | [CEPH.md](infrastructure/ansible/playbooks/proxmox/CEPH.md) |
 | Proxmox hardening | [HARDENING.md](infrastructure/ansible/playbooks/proxmox/HARDENING.md) |
 | Talos lifecycle | [playbooks/talos/](infrastructure/ansible/playbooks/talos/) |
-| Flatcar lifecycle | [playbooks/flatcar/](infrastructure/ansible/playbooks/flatcar/) |
 | Talos networking | [NETWORK.md](infrastructure/linux/talos/NETWORK.md) |
 
 ## Version Management
 
-Component versions live in `infrastructure/linux/{talos,flatcar}/versions.yaml`
+Component versions live in `infrastructure/linux/talos/versions.yaml`
 and are updated automatically by [Renovate](renovate.json) via
 `# renovate:` annotations. Talos patch releases auto-merge after a 3-day
-soak; Kubernetes and Flatcar updates always require manual review — a
+soak; Kubernetes updates always require manual review — a
 Kubernetes minor has to wait for a Talos release that targets it.
 
 The Proxmox ISO has no Renovate datasource and is bumped by hand; see the

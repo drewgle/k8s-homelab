@@ -60,10 +60,15 @@ This document explains the network setup for Talos Linux VMs on Proxmox infrastr
 - `talos-worker-03`: 192.168.100.213 (VM ID: 213)
 
 ### IP Range Planning
+
+The authoritative allocation is spec 0006, VMP-12:
+
 - **Gateway**: .1 (192.168.100.1)
+- **Control-plane VIP**: .200 (`talos_vip`, etcd-elected)
 - **Control Plane**: .201-.210 (supports up to 10 CP nodes)
-- **Workers**: .211-.250 (supports up to 40 worker nodes)
-- **Services**: .251-.254 (reserved for load balancers, etc.)
+- **Workers**: .211-.239 (supports up to 29 worker nodes)
+- **MetalLB pool**: .240-.250 (spec 0009; .240 shared Gateway, .241 Forgejo SSH)
+- **Reserved**: .251-.254 (MetalLB pool growth only)
 
 ## Proxmox Bridge Configuration
 

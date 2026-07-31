@@ -5,8 +5,6 @@
 k8s); repo organization
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md);
 [0008 Kubernetes storage](0008-kubernetes-storage.md) for PV backup
-**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — one identity
-artifact instead of two, and etcd backup is symmetric
 
 ## Context
 
@@ -23,7 +21,7 @@ mechanism but four, because the layers fail independently:
 | Layer | What is lost if it goes | Recovered from |
 |-------|-------------------------|----------------|
 | Repository | everything's definition | git remote (already offsite) |
-| Cluster identity | ability to administer an existing cluster at all | the cluster PKI bundle, committed SOPS-encrypted (spec [0019](0019-single-cluster-mixed-distro.md), MIX-02) |
+| Cluster identity | ability to administer an existing cluster at all | the Talos secrets bundle, gitignored (spec [0013](0013-talos-cluster-lifecycle.md), TALOS-01) — backed up by this spec |
 | Kubernetes objects | workloads, config, RBAC | git (declared) + Velero (undeclared) |
 | Volume data | user data — the only unrecreatable thing | volume snapshots + offsite copy |
 
@@ -55,52 +53,34 @@ what makes this spec small. Everything else needs a real backup.
 
 ### 1. Cluster identity (highest value, smallest data)
 
-The material without which a *running* cluster becomes unadministerable. Spec
-[0019](0019-single-cluster-mixed-distro.md) collapsed this from two per-distro
-items to one:
+The material without which a *running* cluster becomes unadministerable:
 
-- The cluster PKI bundle, `infrastructure/linux/cluster/pki/` (0019 MIX-02,
-  MIX-07) — the Kubernetes, etcd and front-proxy CAs, the service-account signing
-  keypair, the bootstrap token, and the Talos-specific machine material. Every
-  distro's identity artifact is rendered from it, so it is the same one file
-  regardless of what any node is running. Talos's `secrets.yaml` and kubeadm's
-  `/etc/kubernetes/pki` are now derived and reproducible (0013 TALOS-12, 0014
-  FLAT-02), so neither needs backing up.
+- The Talos secrets bundle, `infrastructure/linux/talos/secrets.yaml`
+  (spec [0013](0013-talos-cluster-lifecycle.md), TALOS-01) — generated once,
+  gitignored, and the one file whose loss means rebuilding the cluster. It
+  does **not** ride along with the repository backup, which is exactly why it
+  is this section's first entry.
 - The SOPS age private key (spec 0007) — without it, every committed
   encrypted Secret is undecryptable and the "rebuild from git" claim is false.
   It lives in the Ansible Vault-encrypted variables file, so in practice the
   thing to protect is the **Ansible Vault password**, which is also the
   out-of-band secret for the infrastructure layer.
 
-Because the bundle is committed encrypted, it rides along with the repository
-backup in row one, and the only thing needing out-of-band protection is the Vault
-password. **One secret, not three** — the clearest practical gain from 0019.
-
-The Vault password goes to an [age](https://github.com/FiloSottile/age)-encrypted
+Both go to an [age](https://github.com/FiloSottile/age)-encrypted
 archive written by a playbook to a path outside the repo, with the operator
 responsible for one offsite copy. The procedure is documented; the encryption is
 automated so "back up your key" is never a manual `cp`.
 
-### 2. etcd (always)
+### 2. etcd
 
-This section used to be titled "Flatcar only", on the reasoning that Talos
-rebuilds its control plane from the secrets bundle while kubeadm cannot. That
-conflated identity with data. A control plane exists in every configuration, and
-cluster state that is not in git — custom resources, Velero's own metadata, Flux's
-bookkeeping — lives in etcd regardless of which distro holds the control plane.
-The bundle restores *identity*; it does not restore *state*.
+An earlier draft treated etcd backup as needed only under kubeadm, on the
+reasoning that Talos rebuilds its control plane from the secrets bundle. That
+conflated identity with data: cluster state that is not in git — custom
+resources, Velero's own metadata, Flux's bookkeeping — lives in etcd. The
+bundle restores *identity*; it does not restore *state*.
 
-So the objective is symmetric and only the mechanism differs, following
-`control_plane_distro` (0019 MIX-14):
-
-- Talos: `talosctl etcd snapshot` from the control machine.
-- kubeadm: a CronJob taking an
-  [etcd snapshot](https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster).
-
-Hourly, shipped to the same offsite target as volume backups. That "same objective,
-different mechanism, chosen by one variable" shape is the pattern 0019 establishes
-everywhere, and the *difference in effort* between the two is what belongs in spec
-0010's control-plane-level matrix.
+Mechanism: `talosctl etcd snapshot` from the control machine, hourly, shipped
+to the same offsite target as volume backups.
 
 ### 3. Kubernetes objects and volumes — Velero
 
@@ -142,11 +122,9 @@ with measured values afterwards:
 | Scenario | Target | Path |
 |----------|--------|------|
 | Pod or workload broken | minutes | git revert, Flux reconciles |
-| One Kubernetes node lost | < 1 hour | re-provision (0006) + rejoin (0019 MIX-17, specified by 0013/0014) |
-| One node's distro swapped | < 30 min, no workload outage | `swap-node-distro.yml` (0019 MIX-23) |
+| One Kubernetes node lost | < 1 hour | re-provision (0006) + rejoin (0013, `add-node.yml`) |
 | One Proxmox node lost | < 4 hours | re-image (0001) + rejoin + Ceph rebalance |
 | Cluster lost, hardware intact | < 4 hours | re-provision + bootstrap + Velero restore |
-| Control-plane distro changed | < 4 hours | rebuild + restore; **not** a swap (0019 MIX-14) |
 | Everything lost | days | hardware first; this is not an RTO scenario |
 
 RPO: one hour for flagged user data, 24 hours otherwise, zero for anything
@@ -155,12 +133,12 @@ declared in git.
 ## Implementation plan
 
 1. Identity backup playbook (age-encrypted) — this is the highest-value,
-   lowest-effort piece and does not depend on 0007. Since 0019 it covers the
-   Vault password, because the PKI bundle itself travels with the repo.
+   lowest-effort piece and does not depend on 0007. It covers the Talos
+   secrets bundle and the Vault password.
 2. `vzdump` schedule to an offsite target.
 3. Velero + CSI snapshots in `applications/system/backup/`, with the
    exclusion list and the schedule.
-4. etcd snapshots, by whichever mechanism `control_plane_distro` selects.
+4. etcd snapshots via `talosctl etcd snapshot`.
 5. Backup-failure alerts wired into spec 0009's monitoring.
 6. One full drill: destroy a cluster, restore it, **measure** each phase, and
    replace the estimates above with the observed numbers.
@@ -179,17 +157,14 @@ declared in git.
       contains measured, not estimated, durations.
 - [ ] No table in this repo states a recovery objective that has not been
       measured by that drill.
-- [ ] A cluster is restorable from the repository plus the Vault password alone —
-      no separately archived Talos secrets bundle or kubeadm PKI is needed (0019
-      MIX-04, MIX-07).
+- [ ] A cluster is restorable from the repository, the identity archive
+      (Talos secrets bundle), and the Vault password — and from nothing else.
 
 ## Known limitations
 
-- The cluster PKI bundle is the one artifact whose loss means a new cluster (0019
-  MIX-07). It is committed encrypted, so losing it means losing the repository
-  *and* every clone — but it also means repository compromise plus age-key
-  compromise is total cluster compromise. That trade is stated in 0019 and
-  accepted there.
+- The Talos secrets bundle is the one artifact whose loss means a new cluster
+  (0013 TALOS-01). It is gitignored, so it exists only on the control machine
+  and in this spec's identity archive — the archive is not optional.
 
 ## Open questions
 

@@ -164,8 +164,7 @@ playbooks/
 ├── bootstrap/        # Bare-metal PVE auto-install USB (render answers, build ISO)
 ├── proxmox/          # Proxmox VE clustering, Ceph, hardening
 ├── talos/            # Talos Kubernetes lifecycle
-├── flatcar/          # Flatcar Kubernetes lifecycle
-└── remove-vms.yml    # Tear down Talos or Flatcar VMs
+└── remove-vms.yml    # Tear down the Talos VMs
 roles/
 └── proxmox_vm/       # Shared VM bridge + create/start tasks
 ```

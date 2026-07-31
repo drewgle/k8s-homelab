@@ -3,8 +3,6 @@
 **Status:** Draft
 **Serves goals:** Fully GitOps-backed deployment; learning Ceph
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md)
-**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — a node's distro
-swap is a supported live operation, and volume topology constrains it
 
 ## Context
 
@@ -22,10 +20,8 @@ architecture doc is updated to match.
 - Deployed and configured entirely through GitOps
   (`applications/system/storage/`).
 - A default StorageClass suitable for general workloads, plus a clear story
-  for what happens to volumes when a node's OS is swapped. Since spec
-  [0019](0019-single-cluster-mixed-distro.md) that swap is a supported operation
-  on a live cluster (MIX-23), not a teardown, so this stops being a caveat and
-  becomes a requirement with an acceptance test.
+  for what happens to volumes when a node is destroyed and re-provisioned in
+  place (spec [0006](0006-vm-platform.md), VMP-03/VMP-06).
 
 ## Non-goals
 
@@ -64,15 +60,15 @@ should be re-validated during implementation and this spec updated.
   a SOPS-encrypted Secret.
 - Network prerequisite: the VM VLAN (`vm_subnet`) must reach the management
   network on TCP 8006 only. Documented in
-  [NETWORK.md](../../infrastructure/linux/cluster/NETWORK.md) and enforced no
+  [NETWORK.md](../../infrastructure/linux/talos/NETWORK.md) and enforced no
   wider than that. Spec 0017 FORGE-13 narrows this further, scoping the rule to
   the CSI pods so a CI job cannot reach the hypervisors underneath its own
   cluster.
-- Distro-swap behavior: PVs are Proxmox disks independent of the VMs, so a node
-  swapped in place (0019 MIX-23) keeps its volumes — provided the replacement VM
-  lands on the same Proxmox host, which MIX-28 requires precisely because this
-  plugin keys topology to the Proxmox node. A slot that moves hosts strands its
-  volumes.
+- Node re-provision behavior: PVs are Proxmox disks independent of the VMs, so
+  a node destroyed and re-provisioned in place keeps its volumes — provided the
+  replacement VM lands on the same Proxmox host, which spec 0006 VMP-03
+  requires precisely because this plugin keys topology to the Proxmox node. A
+  slot that moves hosts strands its volumes.
 - Teardown behavior: `remove-vms.yml` deletes VMs — document that `Retain`-class
   volumes survive as orphaned Proxmox disks and how to re-adopt them, and that
   `Delete`-class data is expected to be rebuilt from git (GitOps principle) or
@@ -94,14 +90,13 @@ should be re-validated during implementation and this spec updated.
 - [ ] A PVC against `ceph-rbd` binds, and its data survives deleting and
       rescheduling the consuming pod onto a different node.
 - [ ] The backing image is visible in the Proxmox/Ceph tooling
-      (learning goal: trace one volume end to end and note it in the
-      evaluation journal).
+      (learning goal: trace one volume end to end).
 - [ ] A `ceph-rbd-retain` volume's disk survives `remove-vms.yml` +
       re-provisioning, and the re-adoption procedure is documented and tested
       once.
 - [ ] A PVC bound on a worker node re-attaches with no manual intervention after
-      that node's distro is swapped (0019 MIX-23, MIX-28), and no stale
-      `VolumeAttachment` delays it.
+      that node is destroyed and re-provisioned on the same Proxmox host, and no
+      stale `VolumeAttachment` delays it.
 
 ## Open questions
 
@@ -110,9 +105,10 @@ should be re-validated during implementation and this spec updated.
   `topology.kubernetes.io/zone` = Proxmox node; volumes on *shared* storage
   (which the Ceph pool is) can migrate across zones, volumes on local storage
   cannot. Confirm this holds during live migration of the underlying VM.
-  **Now load-bearing:** 0019 MIX-28 pins a swapped node to its original Proxmox
-  host to keep the zone label constant, and 0019's open question 9 asks whether
-  that label survives a node being destroyed and re-created there at all.
+  **Load-bearing:** spec 0006 VMP-03 pins a re-provisioned node to its original
+  Proxmox host to keep the zone label constant; whether that label survives a
+  node being destroyed and re-created there needs a dedicated test with a bound
+  PVC.
 - Volume snapshots are listed as a non-goal above, but spec
   [0015](0015-backup-and-recovery.md) needs the CSI snapshot API for Velero.
   Decide whether that pulls snapshot support back into this spec.

@@ -7,10 +7,10 @@ did to the second one, and can't rebuild any of them.
 
 This talk is about the other approach: an entire homelab defined in one git
 repository. We start at blank hardware and an unattended-install USB stick,
-build a Proxmox cluster with Ceph storage, bring up Kubernetes two different
-ways — Talos Linux and Flatcar Container Linux, so we can compare what it's
-actually like to *operate* each one — and hand the cluster over to Flux,
-which reconciles everything above it straight from the repo.
+build a Proxmox cluster with Ceph storage, bring up Kubernetes on Talos
+Linux — an immutable OS with no shell, no SSH and no package manager, managed
+entirely through an API — and hand the cluster over to Flux, which reconciles
+everything above it straight from the repo.
 
 Then we delete it all and watch it come back.
 

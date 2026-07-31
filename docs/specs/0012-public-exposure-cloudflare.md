@@ -1,7 +1,7 @@
 # 0012 — Public service exposure via Cloudflare
 
 **Status:** Draft
-**Serves goals:** TLS/exposure (goal 6: public services through Cloudflare);
+**Serves goals:** TLS/exposure (goal 5: public services through Cloudflare);
 fully GitOps-backed deployment
 **Depends on:** [0007 GitOps bootstrap](0007-gitops-bootstrap.md);
 [0009 platform services](0009-platform-services.md) (domain on Cloudflare,
@@ -9,7 +9,7 @@ ingress, cert-manager)
 
 ## Context
 
-Goal 6 splits service exposure into two classes: private services get Let's
+Goal 5 splits service exposure into two classes: private services get Let's
 Encrypt certificates and stay LAN-only (spec 0009), and public services are
 exposed through Cloudflare. This spec defines the public half: how a workload
 in the cluster becomes reachable from the internet without opening a single

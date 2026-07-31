@@ -105,8 +105,7 @@ This document provides a comprehensive overview of the homelab infrastructure ar
 - **Control Plane**: 3 nodes for HA
 - **Worker Nodes**: N nodes for workload distribution
 - **Networking**: Cilium, with kube-proxy replacement — see
-  [spec 0016](../specs/0016-cluster-networking-cilium.md). Same CNI and
-  version on both node OSes, so the OS comparison measures the OS. flannel
+  [spec 0016](../specs/0016-cluster-networking-cilium.md). flannel
   remains selectable via `kubernetes_cni` but is not the default: it does not
   implement NetworkPolicy, and it fails to do so *silently*.
 - **Storage**: a CSI driver against the *existing* Proxmox Ceph cluster —
@@ -114,8 +113,7 @@ This document provides a comprehensive overview of the homelab infrastructure ar
   considered and rejected: it would build a second replicated storage layer
   on top of VM disks that are already Ceph-backed, and it sidesteps the goal
   of learning Ceph.
-- Lifecycle: [spec 0013](../specs/0013-talos-cluster-lifecycle.md) (Talos),
-  [spec 0014](../specs/0014-flatcar-cluster-lifecycle.md) (Flatcar).
+- Lifecycle: [spec 0013](../specs/0013-talos-cluster-lifecycle.md).
 
 ### Application Layer
 
@@ -159,11 +157,9 @@ built yet.
 - Consistent environments
 - API-driven management
 
-Flatcar Container Linux with kubeadm is maintained as an alternative node OS
-(`infrastructure/ansible/playbooks/flatcar/`) for comparison. The two stacks
-share the VM VLAN but have disjoint node IPs, pod CIDRs, service CIDRs and
-cluster names, so both can run at once — capacity permitting. The comparison
-itself is [spec 0010](../specs/0010-node-os-evaluation.md).
+Flatcar Container Linux with kubeadm was previously maintained as an
+alternative node OS for a side-by-side comparison; that goal and the Flatcar
+stack were removed on 2026-07-31 (history in git).
 
 ### Storage Strategy
 **Decision**: Ceph for distributed storage
@@ -228,14 +224,15 @@ Defaults from `infrastructure/ansible/vars.yml.example`:
 - **VM Network**: 192.168.100.0/24 on VLAN 100 (Kubernetes nodes)
 - **Storage Network**: 10.0.1.0/24 (optional dedicated Ceph cluster network)
 
-The two Kubernetes stacks are addressed disjointly so both can run at once
-(spec [0006](../specs/0006-vm-platform.md), VMP-07):
+Cluster addressing (spec [0006](../specs/0006-vm-platform.md), VMP-12):
 
-| | Talos | Flatcar |
-|---|---|---|
-| Node IPs | 192.168.100.201-213 | 192.168.100.221-233 |
-| Pod CIDR | 10.244.0.0/16 | 10.245.0.0/16 |
-| Service CIDR | 10.96.0.0/12 | 10.112.0.0/12 |
+| | Talos cluster |
+|---|---|
+| Control-plane VIP | 192.168.100.200 |
+| Node IPs | 192.168.100.201-213 |
+| Pod CIDR | 10.244.0.0/16 |
+| Service CIDR | 10.96.0.0/12 |
+| MetalLB pool | 192.168.100.240-250 (planned, spec 0009) |
 
 ## Security Architecture
 
@@ -292,7 +289,7 @@ Specified in [spec 0015](../specs/0015-backup-and-recovery.md). **None of it
 is implemented yet** — treat this section as the plan, not a guarantee.
 
 ### Data Protection
-- **Cluster identity**: Talos secrets bundle, kubeadm PKI, and the SOPS age
+- **Cluster identity**: the Talos secrets bundle and the SOPS age
   key — small, static, and the difference between "rebuild" and "gone"
 - **VM Backups**: `vzdump` to Proxmox Backup Server or a NAS
 - **K8s Backups**: Velero for application data and CSI volume snapshots

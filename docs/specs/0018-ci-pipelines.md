@@ -6,9 +6,6 @@ organization
 **Depends on:** [0017 self-hosted forge](0017-self-hosted-forge.md) (the forge,
 the runners and the registry); [0007](0007-gitops-bootstrap.md) (what there is
 to validate)
-**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — jobs run on nodes
-whose distro can change, and node distro drift is worth reporting
-
 ## Context
 
 Spec 0017 builds the forge and the runners but deliberately migrates no
@@ -69,17 +66,14 @@ push to the Forgejo registry using the per-job token from spec 0017, tagged by
 commit SHA. Bound by spec 0017's FORGE-11 — a built image may never be consumed
 by anything under `applications/system/`.
 
-### Workflows must declare what they need from the node
+### Workflows must respect what the node provides
 
-Since spec [0019](0019-single-cluster-mixed-distro.md), a runner's node distro is
-a property that can change under it (MIX-23). Image builds are the case that
-matters: rootless DinD depends on host behavior — seccomp defaults, whether the
-rootfs is writable — that differs between distros. A workflow depending on any of
-that MUST **declare its distro requirement** through the runner label or a
-`nodeSelector` on `node-restriction.kubernetes.io/distro` (0019 MIX-15), rather
-than inheriting whatever FORGE-14 happens to pin. A job that assumes
-its node's distro is a job that breaks the next time a node is swapped, and the
-symptom will look like flakiness rather than like a configuration error.
+Every runner lands on a Talos node, so host behavior — the default seccomp
+profile, the read-only rootfs, no host shell — is uniform and known in
+advance. Image builds are the case that matters: rootless DinD's viability on
+Talos is spec [0017](0017-self-hosted-forge.md) FORGE-19's open validation,
+and workflows MUST NOT assume host capabilities beyond what that validation
+establishes.
 
 ### Scheduled maintenance
 
@@ -94,12 +88,7 @@ symptom will look like flakiness rather than like a configuration error.
   is a belief (spec [0015](0015-backup-and-recovery.md)).
 - **Drift reporting**, surfacing Flux Kustomizations that are not `Ready`, into
   spec [0009](0009-platform-services.md)'s alerting rather than a dashboard
-  nobody opens. This MUST also report **node distro drift**: any node whose
-  authoritative `node-restriction.kubernetes.io/distro` label disagrees with its
-  inventory `node_distro`. That is the signal that a swap was left half-finished
-  or that a node was rebuilt as the wrong distro, and nothing else in the stack
-  would notice — the cluster stays perfectly healthy while a `nodeSelector`
-  quietly points at the wrong node.
+  nobody opens.
 
 ### The GitHub backstop
 
@@ -132,10 +121,8 @@ registry.
 - [ ] The GitHub backstop still passes on the mirror after the migration.
 - [ ] An image built by CI is pullable from the Forgejo registry by a workload
       in `applications/apps/`.
-- [ ] Drift reporting fires when a node's authoritative distro label is made to
-      disagree with its inventory `node_distro`.
-- [ ] The image build workflow states its distro requirement explicitly, and
-      still runs after an unrelated worker is swapped to another distro.
+- [ ] The image build workflow runs successfully on a Talos node under the
+      constraints FORGE-19's validation established.
 
 ## Open questions
 

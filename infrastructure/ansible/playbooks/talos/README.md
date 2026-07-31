@@ -95,10 +95,10 @@ VM teardown is handled by the shared playbook one level up:
 
 ```bash
 # Remove all Talos VMs (with confirmation)
-ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos"
+ansible-playbook playbooks/remove-vms.yml
 
 # Force removal without confirmation
-ansible-playbook playbooks/remove-vms.yml -e "vm_type=talos" -e "force=true"
+ansible-playbook playbooks/remove-vms.yml -e "force=true"
 ```
 
 **⚠️ Warning**: This permanently destroys VMs and their data!
@@ -136,24 +136,22 @@ all:
 ### Variables
 Configure Talos settings in `vars.yml`:
 
-The Talos playbooks share the `kubernetes_*` and `vm_*` variables with the
-Flatcar playbooks; anything that would collide between the two clusters is
-named per stack. See `vars.yml.example` for the full list:
+See `vars.yml.example` for the full list:
 
 ```yaml
-# Shared with Flatcar
+# Kubernetes
 kubernetes_dns_domain: "cluster.local"
 kubernetes_cni: "cilium"   # or "flannel" — see spec 0016
 kubernetes_install_disk: "/dev/sda"
 
-# Talos-only — Flatcar has its own flatcar_* equivalents
+# Talos cluster
 talos_cluster_name: "talos-homelab"
 talos_vip: "192.168.100.200"                          # etcd-elected control plane VIP
 talos_cluster_endpoint: "https://192.168.100.200:6443"
 talos_pod_subnet: "10.244.0.0/16"
 talos_service_subnet: "10.96.0.0/12"
 
-# Proxmox VM provisioning (shared with Flatcar)
+# Proxmox VM provisioning
 vm_vlan_id: 100
 vm_bridge_name: "vmbr1"
 vm_gateway: "192.168.100.1"

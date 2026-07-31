@@ -1,8 +1,7 @@
 ---
 # Full Proxmox infrastructure stack: initial setup, reboot, clustering, Ceph.
-# Kubernetes provisioning is a separate choice (Talos or Flatcar share IPs):
+# Kubernetes provisioning runs separately:
 #   ansible-playbook playbooks/talos/01-provision-vms.yml && ansible-playbook playbooks/talos/02-cluster-create.yml
-#   ansible-playbook playbooks/flatcar/01-provision-vms.yml && ansible-playbook playbooks/flatcar/02-cluster-bootstrap.yml
 # Optional hardening: ansible-playbook playbooks/proxmox/harden.yml
 - name: Initial Proxmox setup
   import_playbook: playbooks/proxmox/01-initial-setup.yml

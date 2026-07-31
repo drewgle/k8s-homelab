@@ -10,8 +10,8 @@ organization
 that no automation here talks to a remote);
 [0015](0015-backup-and-recovery.md) (a new piece of identity material, and the
 first namespace that is *not* recoverable from git)
-**Amended by:** [0019](0019-single-cluster-mixed-distro.md) — FORGE-13 and
-FORGE-14 become implementable, and the address open question closes
+**Superseded requirements:** FORGE-14 → FORGE-19 (every node runs Talos, so
+"pin runners away from Talos" became unimplementable)
 
 ## Context
 
@@ -118,28 +118,14 @@ the same exemption.
   `ClusterRoleBinding`s. The Docker backend needs no API access.
 - **FORGE-13** A `CiliumNetworkPolicy` MUST deny runner egress to the
   management VLAN `192.168.1.0/24`, the API server, the cluster VIP, the node
-  address range `192.168.100.201–.239` (spec
-  [0019](0019-single-cluster-mixed-distro.md), MIX-09), and the kubelet and Talos
-  API ports. The Talos API port exists only on the nodes currently running Talos,
-  which is a moving target under MIX-23, so it MUST be denied everywhere rather
-  than per node. Spec 0008 opens VM VLAN → management on TCP 8006 for the CSI
+  address range `192.168.100.201–.239` (spec [0006](0006-vm-platform.md),
+  VMP-12), and the kubelet and Talos API ports (50000/50001/tcp), on every
+  node. Spec 0008 opens VM VLAN → management on TCP 8006 for the CSI
   driver; that rule MUST be scoped to the CSI driver's pods, or a CI job can reach
   the hypervisors underneath its own cluster.
-- **FORGE-14** Runners MUST be pinned away from Talos nodes by a `nodeSelector`
-  on **`node-restriction.kubernetes.io/distro`** — the authoritative distro label
-  of spec 0019, MIX-15. The prefix matters: it is the one a kubelet cannot set for
-  itself, so a compromised node cannot relabel itself to attract the runners. The
-  self-declared `node.homelab/distro` label MUST NOT be used for this.
-
-  Rootless DinD needs a relaxed PodSecurity posture and Talos's read-only rootfs
-  makes that materially harder; keeping it off the Talos nodes is both pragmatic
-  and a spec [0010](0010-node-os-evaluation.md) finding — one that 0010 can now
-  actually observe, since both distros run in the same cluster under the same pod
-  specs.
-
-  Corollary from 0019 MIX-16: at least one node of the selected distro MUST exist,
-  and a distro swap that would leave none MUST be refused. Without that guard,
-  swapping the last Flatcar worker leaves the runners `Pending` indefinitely.
+- **FORGE-14** **Superseded by FORGE-19 below** (pinned runners away from
+  Talos nodes via a distro `nodeSelector`, from the removed mixed-distro
+  design — every node runs Talos, so there is nothing to pin toward).
 - **FORGE-15** Runners MUST be registered at organization scope, not instance
   scope, MUST carry an explicit label so workflows request them deliberately,
   and fork/untrusted-contributor triggers MUST be disabled. Anyone who can push
@@ -153,6 +139,14 @@ the same exemption.
 - **FORGE-18** The forge namespace MUST be backed up by a mechanism that does
   not depend on CSI volume snapshots, whose availability is spec 0008's open
   question.
+- **FORGE-19** Supersedes FORGE-14. Runners run on Talos nodes — there is no
+  other kind. Rootless DinD MUST therefore be validated against Talos's
+  defaults (read-only rootfs, default seccomp profile, no host shell) before
+  any workflow depends on it, in a namespace carrying the relaxed PodSecurity
+  labels scoped to `forge-runners` only. If rootless DinD proves unworkable on
+  Talos, the fallbacks in preference order are: a kaniko/buildah-style
+  daemonless builder, or a dedicated tainted CI node sized within the spec
+  0006 capacity envelope.
 
 ## Design
 
@@ -215,15 +209,9 @@ Two hostnames, because one name cannot resolve to two IPs sensibly:
   `SSH_DOMAIN` so the clone URLs Forgejo displays are correct.
 
 Forgejo's **built-in SSH server** on **port 22**, not host passthrough. Host
-passthrough is a VM pattern: Talos has no host sshd at all, so it is impossible
-on those nodes, and on Flatcar it would mean Ansible-managing sshd for a
-Flux-managed app. The built-in server is the only option satisfying spec 0007's
-goal of working regardless of node distro — and spec
-[0019](0019-single-cluster-mixed-distro.md) sharpens that argument considerably.
-The constraint is no longer "works on either cluster", where a host-dependent
-design would merely have been awkward; it is "works on a node whose distro can
-change underneath the pod" (MIX-23), where a host-dependent design is simply
-broken. Note the configuration trap:
+passthrough is a VM pattern: Talos has no host sshd at all, so it is
+impossible here — the built-in server is the only option. Note the
+configuration trap:
 `SSH_LISTEN_PORT` is the unprivileged container port (2222) while `SSH_PORT` is
 what Forgejo *advertises* and must be 22; the Service maps 22 → 2222.
 
@@ -240,8 +228,9 @@ client source IPs, and with `Local` on both Services MetalLB must pick a single
 node holding ready endpoints for *both* — coupling a single-replica Forgejo's
 scheduling to Envoy's. Spend the extra address.
 
-Allocation, pinned per FORGE-07 and authoritative in spec 0019 MIX-09: `.240`
-shared Gateway, `.241` Forgejo SSH, both inside the `.240–.250` MetalLB pool.
+Allocation, pinned per FORGE-07 and authoritative in spec
+[0006](0006-vm-platform.md) VMP-12: `.240` shared Gateway, `.241` Forgejo SSH,
+both inside the `.240–.250` MetalLB pool.
 
 ### Flux's access to the forge
 
@@ -328,7 +317,7 @@ then fights a running Forgejo. Steps 4–6 are what a 0015 recovery drill must
 actually measure:
 
 1. Hardware and Proxmox (specs 0001–0004).
-2. VMs, cluster, Cilium (0006, 0019 and its implementations 0013/0014, 0016).
+2. VMs, cluster, Cilium (0006, 0013, 0016).
 3. `01-gitops-bootstrap.yml` with `flux_git_url=<github>`.
 4. Flux brings up `storage` and `metallb`, then **suspend the `forge`
    Kustomization before it settles**.
@@ -382,16 +371,14 @@ namespace, network and node level, not the container level:
   Unbounded image-layer growth on node ephemeral storage evicts neighbours, and
   never the neighbour you would have chosen.
 
-A dedicated tainted CI node is the stronger posture. Spec 0019 makes its cost
-lower than this spec originally assumed: with a mixed worker set — say two Talos
-and one Flatcar — FORGE-14's `nodeSelector` *already* confines the runners to one
-of three workers, so adding the taint only costs other workloads their access to
-that node, not a third of the cluster's CI capacity. FORGE-14's `nodeSelector` is
-still the position now, with the taint as the cheap upgrade.
+A dedicated tainted CI node is the stronger posture, and it is FORGE-19's
+documented fallback. It costs a third of the worker capacity to non-CI
+workloads, so it waits until the runner's behavior on Talos justifies it.
 
-"If a fourth worker appears" needs correcting, though: per 0019 MIX-12 a fourth
-8 GiB worker does not fit in 48 GiB of physical RAM. The precondition is 6 GiB
-workers or more RAM, not simply a decision to add one.
+"If a fourth worker appears" needs correcting, though: per spec 0006's
+capacity envelope a fourth 8 GiB worker does not fit in 48 GiB of physical
+RAM. The precondition is 6 GiB workers or more RAM, not simply a decision to
+add one.
 
 **Registry credentials:** prefer the per-job token Forgejo injects
 automatically — ephemeral, nothing stored. Only if its package-write scope
@@ -415,8 +402,8 @@ spec 0007 depends on Renovate exclusively owning version bumps. Details in spec
 Blocked on specs 0007, 0008 and 0009 being implemented — the forge needs Flux,
 a CSI driver and MetalLB before any of this can run.
 
-1. Pin `.240`/`.241` against spec 0019's MIX-09 address plan, which resolved the
-   IP-range conflict this spec surfaced.
+1. Pin `.240`/`.241` against spec 0006's VMP-12 address plan, which resolved
+   the IP-range conflict this spec surfaced.
 2. `applications/system/forge/` — Forgejo Helm chart pinned and consumed
    through Kustomize, PostgreSQL `StatefulSet`, both PVCs, `HTTPRoute`, the SSH
    `LoadBalancer` Service, and the SOPS-encrypted `SECRET_KEY`,
@@ -428,7 +415,7 @@ a CSI driver and MetalLB before any of this can run.
 5. `flux_git_url` in `vars.yml.example` and the bootstrap playbook, defaulting
    to the GitHub mirror.
 6. `applications/system/forge-runners/` — runner, DinD sidecar,
-   `CiliumNetworkPolicy`, quota, `nodeSelector`.
+   `CiliumNetworkPolicy`, quota, and the FORGE-19 Talos validation.
 7. Velero: add the forge namespace to the file-system-backup set with the
    `pg_dump` pre-hook; add the weekly `forgejo dump` CronJob.
 8. Amend the specs and docs this one affects: 0007 (git source, the
@@ -492,21 +479,20 @@ a CSI driver and MetalLB before any of this can run.
 ## Open questions
 
 - ~~The IP-range conflict is blocking and needs an owning change.~~
-  **Closed by spec [0019](0019-single-cluster-mixed-distro.md), MIX-09**, which is
-  that owning change. It adopts this spec's proposed fix — workers `.211-.239`,
-  MetalLB pool `.240-.250`, the misleading `.251-.254` line deleted — and the
-  `.220` carve-out stops existing entirely, because retiring the second cluster
-  retires the second VIP. `.240` and `.241` are pinned there for the shared
-  Gateway and FORGE-07's SSH service.
+  **Closed** by the address plan at spec [0006](0006-vm-platform.md) VMP-12,
+  which adopts this spec's proposed fix — workers `.211-.239`, MetalLB pool
+  `.240-.250` — with no second-cluster VIP carve-out. `.240` and `.241` are
+  pinned there for the shared Gateway and FORGE-07's SSH service.
 - Does Flux's `healthChecks` gate correctly on a `Job` reaching `Complete`?
   The automatic cutover depends on it. If not, the cutover becomes an explicit
   operator-run play and FORGE-04 needs rewording.
 - Does proxmox-csi-plugin implement the CSI snapshot API (spec 0008's open
   question)? FORGE-18 is written so the answer does not matter, but 0015's text
   currently assumes snapshots.
-- Can `docker:dind-rootless` run without `privileged: true` on these kernels?
-  Determines whether the runner isolation is defense-in-depth or the only
-  defense.
+- Can `docker:dind-rootless` run without `privileged: true` **on Talos** —
+  under its read-only rootfs and default seccomp profile? Now that every node
+  is Talos this is on the critical path for CI (FORGE-19), and it determines
+  whether the runner isolation is defense-in-depth or the only defense.
 - Does the automatic Actions job token carry sufficient package-write scope, or
   is a stored `ci-bot` token unavoidable?
 - Does the Forgejo chart accept SSH host keys via a Secret, or is an
